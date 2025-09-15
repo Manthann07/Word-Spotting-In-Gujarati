@@ -66,6 +66,13 @@ The Gujarati Word Spotting application has been redesigned with a modern, unique
 - **Zoom controls** with percentage display
 - **Search highlights** with multiple color schemes
 - **Page navigation** with clear indicators
+- **Download options** for highlighted results (Image & Text Report)
+
+### Download Features
+- **PDF Export** - Generate PDF files with search highlights preserved
+- **Professional Formatting** - Clean, structured PDF output
+- **Loading States** - Visual feedback during generation
+- **Search Results Integration** - Includes all search metadata and highlights
 
 ## 🎬 Animation System
 
@@ -189,6 +196,7 @@ The Gujarati Word Spotting application has been redesigned with a modern, unique
 - [x] Upload component with drag & drop
 - [x] Search component with glowing effects
 - [x] PDF Viewer with modern controls
+- [x] Download functionality for highlighted results
 - [x] Notification system
 - [x] Footer with branding
 

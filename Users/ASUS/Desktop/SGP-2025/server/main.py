@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import os
 import shutil
 from typing import List, Dict, Any
@@ -40,6 +40,10 @@ uploads_dir = Path("uploads")
 uploads_dir.mkdir(exist_ok=True)
 
 class SearchRequest(BaseModel):
+    query: str
+    pdf_filename: str
+
+class HighlightRequest(BaseModel):
     query: str
     pdf_filename: str
 
@@ -175,6 +179,57 @@ async def list_pdfs():
         if filename.endswith('.pdf'):
             pdf_files.append(filename)
     return {"pdfs": pdf_files}
+
+@app.post("/download-highlighted")
+async def download_highlighted_pdf(request: HighlightRequest):
+    """Generate a highlighted PDF for the given query and return it as a file download"""
+    try:
+        query = request.query.strip()
+        pdf_filename = request.pdf_filename
+
+        if not query:
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        pdf_path = uploads_dir / Path(pdf_filename).name
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="PDF file not found")
+
+        # Create highlighted PDF using PyMuPDF via our PDFProcessor
+        output_path = pdf_processor.highlight_text_in_pdf(str(pdf_path), [query])
+        if not output_path or not os.path.exists(output_path):
+            raise HTTPException(status_code=500, detail="Failed to generate highlighted PDF")
+
+        download_name = f"{Path(pdf_filename).stem}_highlighted.pdf"
+        return FileResponse(path=output_path, media_type="application/pdf", filename=download_name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[DOWNLOAD] Failed to generate highlighted PDF: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating highlighted PDF: {str(e)}")
+
+@app.get("/download-highlighted")
+async def download_highlighted_pdf_get(query: str, pdf_filename: str):
+    """GET variant for compatibility: accepts query params and returns highlighted PDF"""
+    try:
+        q = (query or "").strip()
+        if not q:
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        pdf_path = uploads_dir / Path(pdf_filename).name
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="PDF file not found")
+
+        output_path = pdf_processor.highlight_text_in_pdf(str(pdf_path), [q])
+        if not output_path or not os.path.exists(output_path):
+            raise HTTPException(status_code=500, detail="Failed to generate highlighted PDF")
+
+        download_name = f"{Path(pdf_filename).stem}_highlighted.pdf"
+        return FileResponse(path=output_path, media_type="application/pdf", filename=download_name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[DOWNLOAD][GET] Failed to generate highlighted PDF: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating highlighted PDF: {str(e)}")
 
 @app.get("/test-search")
 async def test_search():

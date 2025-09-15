@@ -96,4 +96,29 @@ export const getAPIStatus = async () => {
   return response.data;
 };
 
+export const downloadHighlightedPDF = async (query, pdfFilename) => {
+  try {
+    const response = await api.post(
+      '/download-highlighted',
+      { query, pdf_filename: pdfFilename },
+      { responseType: 'blob', timeout: 120000 }
+    );
+    return response.data; // Blob
+  } catch (err) {
+    // Fallback to GET if POST route not found (older server)
+    if (err?.response?.status === 404) {
+      const response = await api.get(
+        `/download-highlighted`,
+        {
+          params: { query, pdf_filename: pdfFilename },
+          responseType: 'blob',
+          timeout: 120000,
+        }
+      );
+      return response.data;
+    }
+    throw err;
+  }
+};
+
 export default api; 

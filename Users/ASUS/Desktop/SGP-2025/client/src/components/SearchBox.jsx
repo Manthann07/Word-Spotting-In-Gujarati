@@ -1,10 +1,57 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { searchPDF } from '../api';
 
 const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const inputRef = useRef(null);
+
+  const insertAtCursor = (textToInsert) => {
+    const input = inputRef.current;
+    if (!input) {
+      setQuery(prev => prev + textToInsert);
+      return;
+    }
+    const start = input.selectionStart || query.length;
+    const end = input.selectionEnd || query.length;
+    const newValue = query.slice(0, start) + textToInsert + query.slice(end);
+    setQuery(newValue);
+    // Move caret after inserted text on next tick
+    requestAnimationFrame(() => {
+      input.focus();
+      const pos = start + textToInsert.length;
+      input.setSelectionRange(pos, pos);
+    });
+  };
+
+  const handleBackspace = () => {
+    const input = inputRef.current;
+    if (!input) {
+      setQuery(prev => prev.slice(0, -1));
+      return;
+    }
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || 0;
+    if (start !== end) {
+      // Delete selection
+      const newValue = query.slice(0, start) + query.slice(end);
+      setQuery(newValue);
+      requestAnimationFrame(() => {
+        input.focus();
+        input.setSelectionRange(start, start);
+      });
+    } else if (start > 0) {
+      const pos = start - 1;
+      const newValue = query.slice(0, pos) + query.slice(end);
+      setQuery(newValue);
+      requestAnimationFrame(() => {
+        input.focus();
+        input.setSelectionRange(pos, pos);
+      });
+    }
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -67,8 +114,17 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
                 placeholder="Enter your search query in Gujarati or English..."
                 className="w-full pl-12 pr-4 py-4 bg-transparent border-none text-white placeholder-slate-400 text-lg focus:outline-none focus:ring-0"
                 disabled={isSearching}
+                ref={inputRef}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => setShowKeyboard(v => !v)}
+              className="px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 hover:bg-purple-500/20 hover:border-purple-500/50 transition-all"
+              title="Toggle Gujarati Keyboard"
+            >
+              ગુજરાતી કીબોર્ડ
+            </button>
             
             <button
               type="submit"
@@ -96,6 +152,53 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
           </div>
         </div>
       </form>
+
+      {/* Virtual Gujarati Keyboard */}
+      {showKeyboard && (
+        <div className="mb-6 bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-600/30 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-white font-semibold">Gujarati Keyboard</h4>
+            <button onClick={() => setShowKeyboard(false)} className="text-slate-300 hover:text-white">Close</button>
+          </div>
+          {/* Keys */}
+          <div className="space-y-2">
+            {/* Row 1 */}
+            <div className="flex flex-wrap gap-2">
+              {['ઁ','઀','ઁ','અ','આ','ઇ','ઈ','ઉ','ઊ','ઋ','એ','ઐ','ઓ','ઔ','અં','અઃ'].map(k => (
+                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
+                  {k}
+                </button>
+              ))}
+            </div>
+            {/* Row 2 */}
+            <div className="flex flex-wrap gap-2">
+              {['ક','ખ','ગ','ઘ','ચ','છ','જ','ઝ','ટ','ઠ','ડ','ઢ','ણ','ત','થ','દ','ધ','ન'].map(k => (
+                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
+                  {k}
+                </button>
+              ))}
+            </div>
+            {/* Row 3 */}
+            <div className="flex flex-wrap gap-2">
+              {['પ','ફ','બ','ભ','મ','ય','ર','લ','વ','શ','ષ','સ','હ','ળ','ક્ષા','ज्ञ'].map(k => (
+                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
+                  {k}
+                </button>
+              ))}
+            </div>
+            {/* Matras */}
+            <div className="flex flex-wrap gap-2">
+              {['ા','િ','ી','ુ','ૂ','ૃ','ે','ૈ','ો','ૌ','્','ં','ઃ','઼'].map(k => (
+                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
+                  {k}
+                </button>
+              ))}
+              <button type="button" onClick={() => insertAtCursor(' ')} className="px-6 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">Space</button>
+              <button type="button" onClick={handleBackspace} className="px-6 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-red-600/40 border border-slate-600/40">⌫</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Recent Searches */}
       {searchHistory.length > 0 && (

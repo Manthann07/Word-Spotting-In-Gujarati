@@ -114,33 +114,133 @@ class PDFProcessor:
             return {'num_pages': 0, 'file_size': 0}
     
     def highlight_text_in_pdf(self, pdf_path: str, search_terms: List[str], output_path: str = None) -> str:
-        """Highlight search terms in PDF (creates a new PDF with highlights)"""
+        """Highlight search terms in PDF (creates a new PDF with highlights).
+        Uses case-insensitive, Unicode-safe search. Returns path to the new file or None on error.
+        """
         try:
+            if not os.path.exists(pdf_path):
+                return None
+
+            # Normalize terms for better Unicode matching
+            normalized_terms = []
+            for term in (search_terms or []):
+                try:
+                    normalized_terms.append(term.normalize('NFC') if hasattr(term, 'normalize') else term)
+                except Exception:
+                    normalized_terms.append(term)
+
             doc = fitz.open(pdf_path)
-            
+
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                
-                # Search for terms on this page
-                for term in search_terms:
-                    text_instances = page.search_for(term)
-                    
-                    # Highlight each instance
+
+                # First try native text search + highlight annotations
+                page_match_count = 0
+                for term in normalized_terms:
+                    try:
+                        text_instances = page.search_for(term, flags=fitz.TEXT_IGNORECASE)
+                    except Exception:
+                        text_instances = page.search_for(term)
+
                     for inst in text_instances:
-                        highlight = page.add_highlight_annot(inst)
-                        highlight.set_colors(stroke=(1, 1, 0))  # Yellow highlight
-                        highlight.update()
-            
+                        try:
+                            highlight = page.add_highlight_annot(inst)
+                            highlight.set_colors(stroke=(1, 1, 0))
+                            highlight.update()
+                            page_match_count += 1
+                        except Exception:
+                            continue
+
+                # Fallback: if no matches via search_for, attempt word-block overlay highlighting
+                if page_match_count == 0 and normalized_terms:
+                    try:
+                        words = page.get_text("words")  # x0, y0, x1, y1, word, block, line, word_no
+                        def norm(s: str) -> str:
+                            try:
+                                import unicodedata
+                                return unicodedata.normalize('NFC', s or '').casefold()
+                            except Exception:
+                                return (s or '').lower()
+
+                        norm_terms = [norm(t).replace('\u200b', '').replace('\u200c', '').replace('\u200d', '').replace('\ufeff', '') for t in normalized_terms]
+
+                        for (x0, y0, x1, y1, wtext, *_rest) in words:
+                            nw = norm(wtext).replace('\u200b', '').replace('\u200c', '').replace('\u200d', '').replace('\ufeff', '')
+                            for t in norm_terms:
+                                if not t:
+                                    continue
+                                if t in nw:
+                                    rect = fitz.Rect(x0, y0, x1, y1)
+                                    # Draw semi-transparent yellow rectangle to simulate highlight
+                                    page.draw_rect(rect, fill=(1, 1, 0), fill_opacity=0.35, color=None)
+                                    page_match_count += 1
+                                    break
+                    except Exception:
+                        # Ignore fallback errors
+                        pass
+
+                # OCR fallback: for pure image PDFs with no extracted words
+                if page_match_count == 0 and normalized_terms:
+                    try:
+                        import pytesseract
+                        from PIL import Image
+                        import io
+                        import unicodedata
+
+                        # Render page to image
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                        img = Image.open(io.BytesIO(pix.tobytes("png")))
+                        ocr = pytesseract.image_to_data(img, lang='guj+eng', output_type=pytesseract.Output.DICT)
+                        if ocr and 'text' in ocr:
+                            def norm(s: str) -> str:
+                                try:
+                                    return unicodedata.normalize('NFC', s or '').casefold()
+                                except Exception:
+                                    return (s or '').lower()
+                            norm_terms = [norm(t).replace('\u200b', '').replace('\u200c', '').replace('\u200d', '').replace('\ufeff', '') for t in normalized_terms]
+
+                            page_w = page.rect.width
+                            page_h = page.rect.height
+                            img_w, img_h = img.size
+                            sx = page_w / float(img_w)
+                            sy = page_h / float(img_h)
+
+                            n = len(ocr['text'])
+                            for i in range(n):
+                                txt = norm(ocr['text'][i]).replace('\u200b', '').replace('\u200c', '').replace('\u200d', '').replace('\ufeff', '')
+                                if not txt:
+                                    continue
+                                for t in norm_terms:
+                                    if not t:
+                                        continue
+                                    if t in txt:
+                                        x = ocr['left'][i] * sx
+                                        y = ocr['top'][i] * sy
+                                        w = ocr['width'][i] * sx
+                                        h = ocr['height'][i] * sy
+                                        rect = fitz.Rect(x, y, x + w, y + h)
+                                        page.draw_rect(rect, fill=(1, 1, 0), fill_opacity=0.35, color=None)
+                                        page_match_count += 1
+                                        break
+                    except Exception:
+                        pass
+
             # Save highlighted PDF
             if output_path is None:
                 base_name = os.path.splitext(pdf_path)[0]
                 output_path = f"{base_name}_highlighted.pdf"
-            
-            doc.save(output_path)
+
+            # Ensure directory exists
+            out_dir = os.path.dirname(output_path)
+            if out_dir and not os.path.exists(out_dir):
+                os.makedirs(out_dir, exist_ok=True)
+
+            # Save with clean-up to avoid xref issues
+            doc.save(output_path, garbage=4, deflate=True)
             doc.close()
-            
+
             return output_path
-        
+
         except Exception as e:
             print(f"Error highlighting PDF: {e}")
             return None

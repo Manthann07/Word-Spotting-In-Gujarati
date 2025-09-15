@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { downloadHighlightedPDF } from '../api';
 
 const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -6,6 +7,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
   const [showSearchHighlights, setShowSearchHighlights] = useState(true);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [highlightMethod, setHighlightMethod] = useState('auto'); // 'auto', 'simple', 'regex'
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     if (searchResults?.results?.length > 0) {
@@ -348,6 +350,43 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
     setCurrentMatchIndex(0);
   };
 
+  const handleDownloadHighlightedPDF = async () => {
+    if (!pdfData || !currentQuery) {
+      alert('Please upload a PDF and perform a search first.');
+      return;
+    }
+
+    // Check if we have any search results or if we're currently viewing a page with matches
+    const hasSearchResults = searchResults?.results && searchResults.results.length > 0;
+    const currentPageData = getCurrentPageData();
+    const hasCurrentPageContent = currentPageData && currentPageData.text;
+    
+    if (!hasSearchResults && !hasCurrentPageContent) {
+      alert('No content to download. Please perform a search or navigate to a page with content.');
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      const blob = await downloadHighlightedPDF(currentQuery, pdfData.filename);
+      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(pdfData.filename || 'document').replace('.pdf', '')}_highlighted.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading highlighted PDF:', error);
+      const serverDetail = error?.response?.data?.detail;
+      const msg = serverDetail || (error?.message ? `Download failed: ${error.message}` : 'Failed to download highlighted PDF');
+      alert(msg);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const currentPageData = getCurrentPageData();
   const pageSearchResults = getSearchResultsForCurrentPage();
 
@@ -469,6 +508,35 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                   <option value="regex">Regex</option>
                 </select>
               </div>
+
+              {/* Download Highlighted PDF Button */}
+              <button
+                onClick={handleDownloadHighlightedPDF}
+                disabled={isDownloading}
+                className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-all duration-300 transform hover:scale-105 flex items-center gap-2 ${
+                  isDownloading
+                    ? 'bg-slate-600 text-slate-300 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:shadow-purple-500/25 hover:from-purple-600 hover:to-blue-600'
+                }`}
+                                  title="Download PDF with search results"
+              >
+                {isDownloading ? (
+                  <>
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Generating PDF...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                                          Download Search Results PDF
+                  </>
+                )}
+              </button>
             </div>
           )}
         </div>
@@ -653,21 +721,59 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
       {/* Search Summary */}
       {searchResults?.results?.length > 0 && (
         <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-xl rounded-2xl border border-blue-500/30 p-6">
-          <h4 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-            <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-            </svg>
-            Search Summary
-          </h4>
-          
-          <p className="text-blue-200 mb-4 text-lg">
-            Found {searchResults.results.length} results for "{currentQuery}" across {searchResults.total_pages} pages
-            {getTotalMatchCount() > 0 && (
-              <span className="ml-2 text-blue-300 font-semibold">
-                ({getTotalMatchCount()} total matches)
-              </span>
-            )}
-          </p>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
+            <div>
+              <h4 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+                <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                Search Summary
+              </h4>
+              
+              <p className="text-blue-200 text-lg">
+                Found {searchResults.results.length} results for "{currentQuery}" across {searchResults.total_pages} pages
+                {getTotalMatchCount() > 0 && (
+                  <span className="ml-2 text-blue-300 font-semibold">
+                    ({getTotalMatchCount()} total matches)
+                  </span>
+                )}
+              </p>
+            </div>
+
+            {/* Download Section */}
+            <div className="flex flex-col gap-3">
+              <div className="text-center">
+                <h5 className="text-white font-semibold mb-2">Download Results</h5>
+                <button
+                  onClick={handleDownloadHighlightedPDF}
+                  disabled={isDownloading}
+                  className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 transform hover:scale-105 flex items-center gap-2 mx-auto ${
+                    isDownloading
+                      ? 'bg-slate-600 text-slate-300 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:shadow-purple-500/25 hover:from-purple-600 hover:to-blue-600'
+                  }`}
+                  title="Download PDF with search results"
+                >
+                  {isDownloading ? (
+                    <>
+                      <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                      </svg>
+                      Generating PDF...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                      </svg>
+                      Download Search Results PDF
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
           
           <div className="flex flex-wrap gap-3 mb-4">
             {searchResults.results.map((result, index) => (
