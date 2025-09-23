@@ -8,6 +8,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from models.ocr_utils import OCRProcessor
+from PIL import Image, ImageDraw
+import unicodedata
 
 class PDFProcessor:
     def __init__(self):
@@ -263,6 +265,68 @@ class PDFProcessor:
         
         except Exception as e:
             print(f"Error getting page as image: {e}")
+            return None
+
+    def highlight_text_in_image(self, image_path: str, search_terms: List[str], output_path: str = None) -> str:
+        """Highlight search terms on an image using OCR word boxes and save a new image.
+        Returns path to the highlighted image or None on error.
+        """
+        try:
+            if not os.path.exists(image_path):
+                return None
+
+            # Load image
+            img = Image.open(image_path).convert('RGB')
+            draw = ImageDraw.Draw(img, 'RGBA')
+
+            try:
+                import pytesseract
+                ocr = pytesseract.image_to_data(img, lang='guj+eng', output_type=pytesseract.Output.DICT)
+            except Exception as e:
+                print(f"Error running pytesseract: {e}")
+                return None
+
+            def norm(s: str) -> str:
+                try:
+                    return unicodedata.normalize('NFC', s or '').casefold()
+                except Exception:
+                    return (s or '').lower()
+
+            terms = [(norm(t or '').replace('\u200b','').replace('\u200c','').replace('\u200d','').replace('\ufeff','')) for t in (search_terms or [])]
+            if not any(terms):
+                return None
+
+            n = len(ocr.get('text', []))
+            for i in range(n):
+                txt = norm(ocr['text'][i]).replace('\u200b','').replace('\u200c','').replace('\u200d','').replace('\ufeff','')
+                if not txt:
+                    continue
+                for t in terms:
+                    if t and t in txt:
+                        x = ocr['left'][i]
+                        y = ocr['top'][i]
+                        w = ocr['width'][i]
+                        h = ocr['height'][i]
+                        # Semi-transparent yellow overlay
+                        draw.rectangle([(x, y), (x + w, y + h)], fill=(255, 255, 0, 128))
+                        break
+
+            if output_path is None:
+                base, ext = os.path.splitext(image_path)
+                # Preserve original extension explicitly; default png
+                if ext.lower() in ['.png', '.jpg', '.jpeg']:
+                    output_path = f"{base}_highlighted{ext}"
+                else:
+                    output_path = f"{base}_highlighted.png"
+
+            out_dir = os.path.dirname(output_path)
+            if out_dir and not os.path.exists(out_dir):
+                os.makedirs(out_dir, exist_ok=True)
+
+            img.save(output_path)
+            return output_path
+        except Exception as e:
+            print(f"Error highlighting image: {e}")
             return None
     
     def extract_text_by_coordinates(self, pdf_path: str, page_num: int, rect: tuple) -> str:

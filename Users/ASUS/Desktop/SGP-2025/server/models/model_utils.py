@@ -50,18 +50,43 @@ class IndicBERTModel:
             return False
     
     def extract_text_from_pdf(self, pdf_path: str) -> List[str]:
-        """Extract text from PDF pages"""
+        """Extract text from PDF pages with OCR fallback for scanned PDFs.
+
+        - First tries PyPDF2 text layer
+        - If a page has no text, renders it and OCRs with Gujarati+English
+        - Returns NFC-normalized text for robust matching
+        """
+        import unicodedata
         text_pages = []
         try:
+            # Primary: text layer
             with open(pdf_path, 'rb') as file:
                 pdf_reader = PyPDF2.PdfReader(file)
                 for page_num, page in enumerate(pdf_reader.pages):
-                    text = page.extract_text()
-                    if text.strip():  # Only add non-empty pages
-                        text_pages.append({
-                            'page': page_num + 1,
-                            'text': text.strip()
-                        })
+                    txt = page.extract_text() or ''
+                    txt = txt.strip()
+                    if txt:
+                        text_pages.append({'page': page_num + 1, 'text': unicodedata.normalize('NFC', txt)})
+                    else:
+                        # OCR fallback for this page
+                        try:
+                            import fitz  # PyMuPDF
+                            from PIL import Image
+                            import pytesseract
+                            import io
+                            doc = fitz.open(pdf_path)
+                            if page_num < len(doc):
+                                pg = doc[page_num]
+                                pix = pg.get_pixmap(matrix=fitz.Matrix(2, 2))
+                                img = Image.open(io.BytesIO(pix.tobytes("png")))
+                                ocr_text = pytesseract.image_to_string(img, lang='guj+eng')
+                                ocr_text = (ocr_text or '').strip()
+                                if ocr_text:
+                                    text_pages.append({'page': page_num + 1, 'text': unicodedata.normalize('NFC', ocr_text)})
+                            doc.close()
+                        except Exception as ocr_err:
+                            # Silent fallback; page stays missing
+                            print(f"OCR fallback failed on page {page_num+1}: {ocr_err}")
         except Exception as e:
             print(f"Error extracting text from PDF: {e}")
         return text_pages
@@ -182,32 +207,48 @@ class IndicBERTModel:
         return highlighted_text
 
     def find_exact_matches(self, text: str, query: str) -> List[Dict[str, Any]]:
-        """Find exact matches of the query in text for highlighting (Unicode-safe, tolerant to zero-width chars)."""
+        """Find exact matches of the query in text for highlighting (Unicode-safe, tolerant to zero-width chars).
+
+        Normalizes both text and query to NFC and removes zero-width chars from the query to prevent OCR artifacts
+        from blocking matches.
+        """
         if not text or not query:
             return []
 
         import re
+        import unicodedata
+
+        # Normalize
+        text_norm = unicodedata.normalize('NFC', text)
+        query_clean = (unicodedata.normalize('NFC', query)
+                       .replace('\u200b', '')
+                       .replace('\u200c', '')
+                       .replace('\u200d', '')
+                       .replace('\ufeff', '')
+                       .strip())
+        if not query_clean:
+            return []
 
         # Build a pattern that allows optional zero-width characters between letters
         zwj_class = r"[\u200B\u200C\u200D\uFEFF]*"  # zero-width space, ZWNJ, ZWJ, BOM
-        parts = [re.escape(ch) for ch in query]
+        parts = [re.escape(ch) for ch in query_clean]
         pattern_str = zwj_class.join(parts)
         if not pattern_str:
             return []
         pattern = re.compile(pattern_str, flags=re.IGNORECASE | re.UNICODE)
 
         matches: List[Dict[str, Any]] = []
-        for m in pattern.finditer(text):
+        for m in pattern.finditer(text_norm):
             start = m.start()
             end = m.end()
             if start is None or end is None:
                 continue
-            actual_text = text[start:end]
+            actual_text = text_norm[start:end]
             matches.append({
                 'position': start,
                 'length': end - start,
                 'text': actual_text,
-                'query': query
+                'query': query_clean
             })
 
         return matches
@@ -221,8 +262,9 @@ class IndicBERTModel:
             return {"results": [], "message": "No text found in PDF", "total_pages": 0, "query": query}
         
         results = []
+        import unicodedata
         for page in text_pages:
-            page_text = page['text']
+            page_text = unicodedata.normalize('NFC', page['text'])
             
             # Find exact matches
             exact_matches = self.find_exact_matches(page_text, query)

@@ -29,11 +29,13 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
     e.preventDefault();
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
-    const pdfFile = files.find(file => file.type === 'application/pdf');
-    if (pdfFile) {
-      handleFileUpload(pdfFile);
+    const supported = files.find(file => (
+      file.type === 'application/pdf' || /image\/(png|jpe?g)/i.test(file.type)
+    ));
+    if (supported) {
+      handleFileUpload(supported);
     } else {
-      const errorMsg = 'Please drop a valid PDF file';
+      const errorMsg = 'Please drop a PDF or PNG/JPG image';
       setUploadError(errorMsg);
       onUploadError(errorMsg);
     }
@@ -48,8 +50,10 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
 
   const validateFile = useCallback((file) => {
     // Check file type
-    if (file.type !== 'application/pdf') {
-      return 'Please select a valid PDF file';
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+    const isImg = /image\/(png|jpe?g)/i.test(file.type) || /\.(png|jpe?g)$/i.test(file.name || '');
+    if (!isPdf && !isImg) {
+      return 'Please select a PDF or PNG/JPG image';
     }
     
     // Check file size (50MB limit)
@@ -59,12 +63,12 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
     
     // Check if file is empty
     if (file.size === 0) {
-      return 'File is empty. Please select a valid PDF file.';
+      return 'File is empty. Please select a valid file.';
     }
     
     // Check filename
     if (!file.name || file.name.trim() === '') {
-      return 'Invalid filename. Please select a valid PDF file.';
+      return 'Invalid filename. Please select a valid file.';
     }
     
     return null; // No error
@@ -209,9 +213,7 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
                       style={{ width: `${uploadProgress}%` }}
                     ></div>
                   </div>
-                  <p className="text-green-400 font-semibold text-lg">
-                    Uploading PDF... {uploadProgress}%
-                  </p>
+                  <p className="text-green-400 font-semibold text-lg">Uploading... {uploadProgress}%</p>
                   {retryCount > 0 && (
                     <p className="text-slate-400 text-sm">
                       Retry attempt: {retryCount}/3
@@ -269,13 +271,13 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
 
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-2xl font-bold text-white mb-2">Drop your PDF here</h3>
+                    <h3 className="text-2xl font-bold text-white mb-2">Drop your PDF or Image here</h3>
                     <p className="text-slate-300 text-lg">or click to browse files</p>
                   </div>
 
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.png,.jpg,.jpeg"
                     onChange={handleFileSelect}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                     id="file-input"
@@ -285,7 +287,7 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
                     htmlFor="file-input" 
                     className="inline-block px-8 py-4 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl font-semibold text-lg shadow-2xl hover:shadow-purple-500/25 transition-all duration-300 cursor-pointer transform hover:scale-105 hover:from-purple-600 hover:to-blue-600"
                   >
-                    Choose PDF File
+                    Choose PDF/Image File
                   </label>
 
                   {/* File requirements */}
@@ -296,7 +298,7 @@ const Upload = ({ onUploadSuccess, onUploadError }) => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                         </svg>
                       </div>
-                      <p className="text-slate-300 text-sm text-center">PDF Format</p>
+                      <p className="text-slate-300 text-sm text-center">PDF / PNG / JPG</p>
                     </div>
                     
                     <div className="bg-slate-700/30 rounded-xl p-4 border border-slate-600/30">

@@ -1,11 +1,15 @@
 import React, { useState, useRef } from 'react';
-import { searchPDF } from '../api';
+import { searchPDF, searchByImage, ocrImage } from '../api';
 
 const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
   const [showKeyboard, setShowKeyboard] = useState(false);
+  const [queryImage, setQueryImage] = useState(null);
+  const [queryImageName, setQueryImageName] = useState('');
+  const [ocrPreview, setOcrPreview] = useState('');
+  const fileInputRef = useRef(null);
   const inputRef = useRef(null);
 
   const insertAtCursor = (textToInsert) => {
@@ -55,28 +59,61 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    if (!query.trim()) {
-      onSearchError('Please enter a search query');
-      return;
-    }
     if (!selectedPDF) {
       onSearchError('Please upload a PDF first');
       return;
     }
     setIsSearching(true);
     try {
-      const trimmed = query.trim();
-      const results = await searchPDF(trimmed, selectedPDF);
-      setSearchHistory(prev => {
-        const newHistory = [trimmed, ...prev.filter(item => item !== trimmed)].slice(0, 5);
-        return newHistory;
-      });
-      onSearchResults(results);
+      if (queryImage) {
+        const isPdf = /\.pdf$/i.test(selectedPDF || '');
+        if (!isPdf) {
+          onSearchError('Please select a PDF to search in. You uploaded an image as the document.');
+          return;
+        }
+        // 1) OCR the query image to get Gujarati text
+        const extracted = await ocrImage(queryImage);
+        const normalized = (extracted || '').replace(/\s+/g, ' ').trim();
+        if (!normalized) {
+          onSearchError('Could not read any text from the image.');
+          return;
+        }
+        setOcrPreview(normalized);
+        setQuery(normalized);
+        // 2) Run normal search with the extracted text
+        const results = await searchPDF(normalized, selectedPDF);
+        onSearchResults({ ...results, extracted_query: normalized });
+      } else {
+        if (!query.trim()) {
+          onSearchError('Please enter a search query or upload an image');
+          return;
+        }
+        const trimmed = query.trim();
+        const results = await searchPDF(trimmed, selectedPDF);
+        setSearchHistory(prev => {
+          const newHistory = [trimmed, ...prev.filter(item => item !== trimmed)].slice(0, 5);
+          return newHistory;
+        });
+        onSearchResults(results);
+      }
     } catch (error) {
       onSearchError(error.response?.data?.detail || 'Search failed. Please try again.');
     } finally {
       setIsSearching(false);
+      // Reset image selection so the same/new image can be chosen again without refresh
+      setQueryImage(null);
+      setQueryImageName('');
+      if (fileInputRef.current) {
+        try { fileInputRef.current.value = null; } catch (e) {}
+      }
     }
+  };
+
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+    setQueryImage(file || null);
+    setQueryImageName(file ? (file.name || 'image') : '');
+    setOcrPreview('');
   };
 
   const handleHistoryClick = (historyQuery) => {
@@ -117,7 +154,7 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
                 ref={inputRef}
               />
             </div>
-            <button
+              <button
               type="button"
               onClick={() => setShowKeyboard(v => !v)}
               className="px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 hover:bg-purple-500/20 hover:border-purple-500/50 transition-all"
@@ -125,11 +162,22 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
             >
               ગુજરાતી કીબોર્ડ
             </button>
+            <label className="px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all cursor-pointer">
+              Upload Image
+              <input 
+                type="file" 
+                accept="image/png, image/jpeg" 
+                onChange={handleImageChange} 
+                onClick={(e) => { e.target.value = null; }}
+                ref={fileInputRef}
+                className="hidden" 
+              />
+            </label>
             
             <button
               type="submit"
               className="px-8 py-4 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl font-semibold shadow-lg hover:shadow-purple-500/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 hover:from-purple-600 hover:to-blue-600"
-              disabled={isSearching || !query.trim() || !selectedPDF}
+              disabled={isSearching || (!queryImage && !query.trim())}
             >
               {isSearching ? (
                 <div className="flex items-center gap-2">
@@ -201,6 +249,26 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
       )}
 
       {/* Recent Searches */}
+      {queryImage && (
+        <div className="bg-slate-800/30 backdrop-blur-xl rounded-2xl border border-blue-500/30 p-4 mb-4 flex items-center justify-between">
+          <div className="text-slate-200">
+            <div className="text-sm">Query image selected. Click Search to use OCR.</div>
+            <div className="font-semibold truncate max-w-[70vw]">{queryImageName}</div>
+          </div>
+          <button
+            onClick={() => { setQueryImage(null); setQueryImageName(''); }}
+            className="px-3 py-2 bg-slate-700/60 text-slate-200 rounded-lg hover:bg-red-500/30 border border-slate-600/40"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+      {ocrPreview && (
+        <div className="bg-slate-800/30 backdrop-blur-xl rounded-2xl border border-slate-600/30 p-4 mb-4 text-slate-200">
+          <div className="text-sm">Extracted from image:</div>
+          <div className="font-semibold">{ocrPreview}</div>
+        </div>
+      )}
       {searchHistory.length > 0 && (
         <div className="bg-slate-800/30 backdrop-blur-xl rounded-2xl border border-slate-600/30 p-6 mb-6">
           <div className="flex justify-between items-center mb-4">

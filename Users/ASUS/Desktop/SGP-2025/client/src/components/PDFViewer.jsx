@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { downloadHighlightedPDF } from '../api';
+import { downloadHighlightedPDF, downloadHighlightedImage } from '../api';
 
 const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -350,9 +350,9 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
     setCurrentMatchIndex(0);
   };
 
-  const handleDownloadHighlightedPDF = async () => {
+  const handleDownloadHighlighted = async () => {
     if (!pdfData || !currentQuery) {
-      alert('Please upload a PDF and perform a search first.');
+      alert('Please upload a file and perform a search first.');
       return;
     }
 
@@ -368,19 +368,28 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
 
     setIsDownloading(true);
     try {
-      const blob = await downloadHighlightedPDF(currentQuery, pdfData.filename);
-      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      const hasType = typeof pdfData.file_type === 'string' && pdfData.file_type.length > 0;
+      const isPdf = hasType ? (pdfData.file_type === 'pdf') : /\.pdf$/i.test(pdfData.filename || '');
+      const blob = isPdf
+        ? await downloadHighlightedPDF(currentQuery, pdfData.filename)
+        : await downloadHighlightedImage(currentQuery, pdfData.filename);
+      const extHint = (pdfData.image_ext || '').toLowerCase();
+      const isPng = !isPdf && (extHint === '.png' || /\.png$/i.test(pdfData.filename || ''));
+      const mime = isPdf ? 'application/pdf' : (isPng ? 'image/png' : 'image/jpeg');
+      const url = URL.createObjectURL(new Blob([blob], { type: mime }));
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(pdfData.filename || 'document').replace('.pdf', '')}_highlighted.pdf`;
+      const base = (pdfData.filename || 'document').replace(/\.(pdf|png|jpe?g)$/i, '');
+      const ext = isPdf ? '.pdf' : (isPng ? '.png' : '.jpg');
+      a.download = `${base}_highlighted${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error downloading highlighted PDF:', error);
+      console.error('Error downloading highlighted file:', error);
       const serverDetail = error?.response?.data?.detail;
-      const msg = serverDetail || (error?.message ? `Download failed: ${error.message}` : 'Failed to download highlighted PDF');
+      const msg = serverDetail || (error?.message ? `Download failed: ${error.message}` : 'Failed to download highlighted file');
       alert(msg);
     } finally {
       setIsDownloading(false);
@@ -511,14 +520,14 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
 
               {/* Download Highlighted PDF Button */}
               <button
-                onClick={handleDownloadHighlightedPDF}
+                onClick={handleDownloadHighlighted}
                 disabled={isDownloading}
                 className={`px-4 py-2 rounded-lg font-medium shadow-lg transition-all duration-300 transform hover:scale-105 flex items-center gap-2 ${
                   isDownloading
                     ? 'bg-slate-600 text-slate-300 cursor-not-allowed'
                     : 'bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:shadow-purple-500/25 hover:from-purple-600 hover:to-blue-600'
                 }`}
-                                  title="Download PDF with search results"
+                                  title="Download highlighted results"
               >
                 {isDownloading ? (
                   <>
@@ -526,14 +535,14 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                     </svg>
-                    Generating PDF...
+                    Generating...
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
-                                          Download Search Results PDF
+                                          Download Search Results
                   </>
                 )}
               </button>
@@ -618,7 +627,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
           {currentPageData ? (
             <div className="whitespace-pre-wrap break-words text-slate-200 text-lg leading-relaxed">
               {/* No Results Message */}
-              {currentQuery && pageSearchResults.length === 0 && (
+              {currentQuery && getMatchCountForCurrentPage() === 0 && (
                 <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-yellow-300">
                   <div className="flex items-center gap-3">
                     <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -745,14 +754,14 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
               <div className="text-center">
                 <h5 className="text-white font-semibold mb-2">Download Results</h5>
                 <button
-                  onClick={handleDownloadHighlightedPDF}
+                  onClick={handleDownloadHighlighted}
                   disabled={isDownloading}
                   className={`px-6 py-3 rounded-xl font-semibold shadow-lg transition-all duration-300 transform hover:scale-105 flex items-center gap-2 mx-auto ${
                     isDownloading
                       ? 'bg-slate-600 text-slate-300 cursor-not-allowed'
                       : 'bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:shadow-purple-500/25 hover:from-purple-600 hover:to-blue-600'
                   }`}
-                  title="Download PDF with search results"
+                  title="Download highlighted results"
                 >
                   {isDownloading ? (
                     <>
@@ -760,14 +769,14 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                       </svg>
-                      Generating PDF...
+                      Generating...
                     </>
                   ) : (
                     <>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                       </svg>
-                      Download Search Results PDF
+                      Download Search Results
                     </>
                   )}
                 </button>
