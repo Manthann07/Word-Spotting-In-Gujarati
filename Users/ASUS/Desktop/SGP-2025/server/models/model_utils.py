@@ -22,6 +22,10 @@ class IndicBERTModel:
         self.model_loaded = False
         # Don't load model immediately - load it when needed
         print("IndicBERT model initialized (will load on first use)")
+        # Simple in-memory caches to speed up repeated searches
+        # Keyed by (pdf_path, mtime)
+        self.pdf_text_cache: dict = {}
+        self.pdf_embeddings_cache: dict = {}
     
     def _load_model(self):
         """Load the IndicBERT model and tokenizer"""
@@ -49,6 +53,26 @@ class IndicBERTModel:
             self.model_loaded = False
             return False
     
+    def _get_pdf_mtime_key(self, pdf_path: str) -> tuple:
+        try:
+            mtime = os.path.getmtime(pdf_path)
+        except Exception:
+            mtime = 0.0
+        return (os.path.abspath(pdf_path), mtime)
+
+    def _get_cached_text_pages(self, pdf_path: str) -> List[dict]:
+        """Return cached text pages if available and up-to-date, else extract and cache."""
+        key = self._get_pdf_mtime_key(pdf_path)
+        cached = self.pdf_text_cache.get(key)
+        if cached is not None:
+            return cached
+        pages = self.extract_text_from_pdf(pdf_path)
+        self.pdf_text_cache.clear()  # drop old versions to keep memory bounded
+        self.pdf_text_cache[key] = pages
+        # Invalidate embeddings cache when text changes
+        self.pdf_embeddings_cache.pop(key, None)
+        return pages
+
     def extract_text_from_pdf(self, pdf_path: str) -> List[str]:
         """Extract text from PDF pages with OCR fallback for scanned PDFs.
 
@@ -132,15 +156,21 @@ class IndicBERTModel:
     
     def search_text_sync(self, pdf_path: str, query: str) -> Dict[str, Any]:
         """Search for text in PDF using hybrid semantic + exact text matching"""
-        # Extract text from PDF
-        text_pages = self.extract_text_from_pdf(pdf_path)
+        # Extract text from PDF with caching
+        text_pages = self._get_cached_text_pages(pdf_path)
         
         if not text_pages:
             return {"results": [], "message": "No text found in PDF", "total_pages": 0, "query": query}
         
-        # Get embeddings for all pages
-        page_texts = [page['text'] for page in text_pages]
-        page_embeddings = self.get_embeddings(page_texts)
+        # Get embeddings for all pages (cached per PDF version)
+        key = self._get_pdf_mtime_key(pdf_path)
+        cached_embeds = self.pdf_embeddings_cache.get(key)
+        if cached_embeds is None:
+            page_texts = [page['text'] for page in text_pages]
+            page_embeddings = self.get_embeddings(page_texts)
+            self.pdf_embeddings_cache[key] = page_embeddings
+        else:
+            page_embeddings = cached_embeds
         
         # Get embedding for query
         query_embedding = self.get_embeddings([query])
@@ -255,8 +285,8 @@ class IndicBERTModel:
 
     def search_with_exact_matching(self, pdf_path: str, query: str) -> Dict[str, Any]:
         """Search for text in PDF with exact text matching for highlighting"""
-        # Extract text from PDF
-        text_pages = self.extract_text_from_pdf(pdf_path)
+        # Extract text from PDF with caching
+        text_pages = self._get_cached_text_pages(pdf_path)
         
         if not text_pages:
             return {"results": [], "message": "No text found in PDF", "total_pages": 0, "query": query}

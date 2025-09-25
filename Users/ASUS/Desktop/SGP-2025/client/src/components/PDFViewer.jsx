@@ -107,36 +107,21 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
 
   const highlightAllMatches = (text, query) => {
     if (!query || !showSearchHighlights) return text;
-    
-    console.log('🔍 Regex highlighting:', { query, textLength: text.length });
-    
+    // Reduce console noise and ensure consistent styling
     // Normalize to NFC and build regex tolerant to zero-width and whitespace
     const textNorm = text.normalize('NFC');
     const queryNorm = query.normalize('NFC');
     const spacer = "[\\s\\u200B\\u200C\\u200D\\uFEFF]*";
     const parts = Array.from(queryNorm).map(ch => ch.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'));
     const regex = new RegExp(parts.join(spacer), 'giu');
-    
-    console.log('🔍 Regex pattern:', regex);
-    
+
     // Replace with highlighted version - use different colors for multiple matches
     let matchCount = 0;
     const highlightedText = textNorm.replace(regex, (match) => {
       matchCount++;
-      console.log('🎯 Found match:', match, 'at position', matchCount);
-      const baseStyle = 'padding:0 2px;border-radius:2px;';
-      let style;
-      if (matchCount === currentMatchIndex + 1) {
-        style = `${baseStyle}background-color:#fca5a5;color:#7f1d1d;border:2px solid #ef4444;`;
-      } else if (matchCount % 2 === 0) {
-        style = `${baseStyle}background-color:#fed7aa;color:#7c2d12;`;
-      } else {
-        style = `${baseStyle}background-color:#fde68a;color:#78350f;`;
-      }
+      const style = 'padding:0 2px;border-radius:2px;background-color:#fde68a;color:#78350f;';
       return `<mark style="${style}">${match}</mark>`;
     });
-    
-    console.log('🎯 Total matches found:', matchCount);
     return highlightedText;
   };
 
@@ -183,10 +168,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
         // Append safe text before match
         html += escapeHtml(text.slice(cursor, m.position));
         count += 1;
-        const isCurrent = count === (currentMatchIndex + 1);
-        const colorClass = isCurrent
-          ? 'bg-red-300 text-red-900 border-2 border-red-500'
-          : (count % 2 === 0 ? 'bg-orange-200 text-orange-900' : 'bg-yellow-200 text-yellow-900');
+        const colorClass = 'bg-yellow-200 text-yellow-900';
         const matchText = text.slice(m.position, m.position + m.length);
         html += `<mark class="${colorClass} rounded px-1 font-semibold">${escapeHtml(matchText)}</mark>`;
         cursor = m.position + m.length;
@@ -204,6 +186,34 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
     const parts = Array.from(queryNorm).map(ch => ch.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'));
     const regex = new RegExp(parts.join(spacer), 'giu');
     return base.replace(regex, '<mark class="bg-yellow-200 text-yellow-900 rounded px-1 font-semibold">$&</mark>');
+  };
+
+  // Compute Unicode-safe exact matches on the client for the visible page text
+  const computeExactMatches = (text, query) => {
+    if (!text || !query) return [];
+    try {
+      const textNorm = text.normalize('NFC');
+      const queryNorm = query
+        .normalize('NFC')
+        .replace(/\u200b|\u200c|\u200d|\ufeff/g, '')
+        .trim();
+      if (!queryNorm) return [];
+      const spacer = "[\\u200B\\u200C\\u200D\\uFEFF]*"; // allow zero-width between letters
+      const parts = Array.from(queryNorm).map(ch => ch.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'));
+      if (parts.length === 0) return [];
+      const pattern = new RegExp(parts.join(spacer), 'giu');
+      const matches = [];
+      let m;
+      while ((m = pattern.exec(textNorm)) !== null) {
+        const start = m.index;
+        const end = start + m[0].length;
+        matches.push({ position: start, length: end - start, text: m[0], query: queryNorm });
+        if (pattern.lastIndex === m.index) pattern.lastIndex++; // avoid zero-length loops
+      }
+      return matches;
+    } catch (e) {
+      return [];
+    }
   };
 
   const getCurrentPageData = () => {
@@ -398,6 +408,19 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
 
   const currentPageData = getCurrentPageData();
   const pageSearchResults = getSearchResultsForCurrentPage();
+
+  // Unified relevance percentage for both semantic and exact-match results
+  const getRelevancePercent = (result) => {
+    try {
+      if (typeof result?.score !== 'number') return 0;
+      // If score looks like cosine similarity (0..1), scale to 0..100
+      if (result.score <= 1) return Math.round(result.score * 100);
+      // Otherwise it's a density-like score; clamp to 100 for display
+      return Math.max(1, Math.min(100, Math.round(result.score)));
+    } catch (e) {
+      return 0;
+    }
+  };
 
   if (!pdfData) {
     return (
@@ -652,9 +675,9 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                     } else if (highlightMethod === 'regex') {
                       return highlightAllMatches(currentPageData.text, currentQuery);
                     } else {
-                      // Use exact match positions from the server when available
-                      const exactMatches = pageSearchResults.flatMap(r => (r.exact_matches || []));
-                      const sourceText = (pageSearchResults.find(r => r.full_text)?.full_text || currentPageData.text).normalize('NFC');
+                      // Auto: compute exact matches on the visible page text to keep layout consistent
+                      const sourceText = currentPageData.text.normalize('NFC');
+                      const exactMatches = computeExactMatches(sourceText, currentQuery);
                       return highlightWithExactMatches(sourceText, currentQuery, exactMatches);
                     }
                   })()
@@ -677,10 +700,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-4 text-sm">
                             <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-lg border border-yellow-500/30">
-                              Similarity: {Math.round(result.score * 100)}%
-                            </span>
-                            <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-lg border border-blue-500/30">
-                              Score: {result.score.toFixed(3)}
+                              Relevance: {getRelevancePercent(result)}%
                             </span>
                             {result.exact_matches && (
                               <span className="px-3 py-1 bg-green-500/20 text-green-300 rounded-lg border border-green-500/30">
@@ -795,7 +815,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                     : 'bg-white/10 text-blue-300 border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50'
                 }`}
               >
-                Page {result.page} ({Math.round(result.score * 100)}%)
+                Page {result.page} ({getRelevancePercent(result)}%)
               </button>
             ))}
           </div>
