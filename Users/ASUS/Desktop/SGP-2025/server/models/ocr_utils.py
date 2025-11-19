@@ -117,53 +117,62 @@ class OCRProcessor:
             return image
     
     def advanced_preprocess_for_gujarati(self, image: Image.Image) -> List[Image.Image]:
-        """Advanced preprocessing specifically for Gujarati OCR"""
+        """Advanced preprocessing specifically for Gujarati OCR
+        Includes both gentle and aggressive preprocessing methods"""
         processed_images = []
         
         try:
-            # Convert to grayscale
+            from PIL import ImageEnhance, ImageFilter
+            
+            # Method 0: Minimal preprocessing (gentle) - often best for clean images
+            img0 = image.copy()
+            if img0.mode != 'L':
+                img0 = img0.convert('L')
+            # Just resize if too small, minimal enhancement
+            if img0.size[0] < 800 or img0.size[1] < 600:
+                scale_factor = max(800 / img0.size[0], 600 / img0.size[1])
+                new_width = int(img0.size[0] * scale_factor)
+                new_height = int(img0.size[1] * scale_factor)
+                img0 = img0.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            processed_images.append(img0)
+            
+            # Convert to grayscale for other methods
             if image.mode != 'L':
                 image = image.convert('L')
             
-            # Method 1: Standard preprocessing
+            # Method 1: Light preprocessing (good for single words)
             img1 = image.copy()
-            from PIL import ImageEnhance, ImageFilter
-            
-            # Enhance contrast
+            # Light contrast enhancement
             enhancer = ImageEnhance.Contrast(img1)
-            img1 = enhancer.enhance(3.5)
+            img1 = enhancer.enhance(2.0)  # Reduced from 3.5
             
-            # Enhance sharpness
+            # Light sharpness
             sharpness_enhancer = ImageEnhance.Sharpness(img1)
-            img1 = sharpness_enhancer.enhance(2.5)
+            img1 = sharpness_enhancer.enhance(1.5)  # Reduced from 2.5
             
-            # Apply slight blur to reduce noise
-            img1 = img1.filter(ImageFilter.GaussianBlur(radius=0.5))
-            
-            # Resize for better OCR
-            if img1.size[0] < 2000 or img1.size[1] < 1500:
-                scale_factor = max(2000 / img1.size[0], 1500 / img1.size[1])
+            # Resize for better OCR (but not too aggressive)
+            if img1.size[0] < 1200 or img1.size[1] < 900:
+                scale_factor = max(1200 / img1.size[0], 900 / img1.size[1])
                 new_width = int(img1.size[0] * scale_factor)
                 new_height = int(img1.size[1] * scale_factor)
                 img1 = img1.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
             processed_images.append(img1)
             
-            # Method 2: High contrast preprocessing
+            # Method 2: Standard preprocessing
             img2 = image.copy()
-            
-            # Apply very high contrast
+            # Enhance contrast
             enhancer = ImageEnhance.Contrast(img2)
-            img2 = enhancer.enhance(4.0)
+            img2 = enhancer.enhance(3.5)
             
-            # Enhance brightness
-            brightness_enhancer = ImageEnhance.Brightness(img2)
-            img2 = brightness_enhancer.enhance(1.3)
+            # Enhance sharpness
+            sharpness_enhancer = ImageEnhance.Sharpness(img2)
+            img2 = sharpness_enhancer.enhance(2.5)
             
-            # Apply edge enhancement
-            img2 = img2.filter(ImageFilter.EDGE_ENHANCE_MORE)
+            # Apply slight blur to reduce noise
+            img2 = img2.filter(ImageFilter.GaussianBlur(radius=0.5))
             
-            # Resize
+            # Resize for better OCR
             if img2.size[0] < 2000 or img2.size[1] < 1500:
                 scale_factor = max(2000 / img2.size[0], 1500 / img2.size[1])
                 new_width = int(img2.size[0] * scale_factor)
@@ -172,15 +181,18 @@ class OCRProcessor:
             
             processed_images.append(img2)
             
-            # Method 3: Inverted preprocessing (for dark text on light background)
+            # Method 3: High contrast preprocessing
             img3 = image.copy()
-            
-            # Invert the image
-            img3 = Image.eval(img3, lambda x: 255 - x)
-            
-            # Enhance contrast
+            # Apply very high contrast
             enhancer = ImageEnhance.Contrast(img3)
-            img3 = enhancer.enhance(3.0)
+            img3 = enhancer.enhance(4.0)
+            
+            # Enhance brightness
+            brightness_enhancer = ImageEnhance.Brightness(img3)
+            img3 = brightness_enhancer.enhance(1.3)
+            
+            # Apply edge enhancement
+            img3 = img3.filter(ImageFilter.EDGE_ENHANCE_MORE)
             
             # Resize
             if img3.size[0] < 2000 or img3.size[1] < 1500:
@@ -191,6 +203,24 @@ class OCRProcessor:
             
             processed_images.append(img3)
             
+            # Method 4: Inverted preprocessing (for dark text on light background)
+            img4 = image.copy()
+            # Invert the image
+            img4 = Image.eval(img4, lambda x: 255 - x)
+            
+            # Enhance contrast
+            enhancer = ImageEnhance.Contrast(img4)
+            img4 = enhancer.enhance(3.0)
+            
+            # Resize
+            if img4.size[0] < 2000 or img4.size[1] < 1500:
+                scale_factor = max(2000 / img4.size[0], 1500 / img4.size[1])
+                new_width = int(img4.size[0] * scale_factor)
+                new_height = int(img4.size[1] * scale_factor)
+                img4 = img4.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            processed_images.append(img4)
+            
         except Exception as e:
             print(f"Error in advanced preprocessing: {e}")
             processed_images.append(image)
@@ -198,48 +228,43 @@ class OCRProcessor:
         return processed_images
 
     def extract_text_with_advanced_ocr(self, image: Image.Image, languages: List[str] = None) -> str:
-        """Advanced OCR extraction with multiple preprocessing methods and EasyOCR fallback"""
+        """Advanced OCR extraction with multiple preprocessing methods and EasyOCR fallback
+        Optimized for both single words and longer text"""
         if languages is None:
             languages = ['eng']
         
         try:
+            # First, try with original image (no preprocessing) - often works best for clean images
+            print("Trying original image (no preprocessing)...")
+            original_results = self._try_ocr_configs(image, languages, "Original")
+            all_results = original_results
+            
             # Get multiple preprocessed versions
             processed_images = self.advanced_preprocess_for_gujarati(image)
             
-            all_results = []
-            
             for i, processed_image in enumerate(processed_images):
                 print(f"Trying preprocessing method {i+1}...")
-                
-                # Try different OCR configurations for each preprocessed image
-                configs = [
-                    ('--oem 1 --psm 6 -l guj+eng --dpi 300', f'LSTM Gujarati+English (Method {i+1})'),
-                    ('--oem 3 --psm 6 -l guj+eng --dpi 300', f'Neural Gujarati+English (Method {i+1})'),
-                    ('--oem 1 --psm 3 -l guj+eng --dpi 300', f'LSTM PSM3 Gujarati+English (Method {i+1})'),
-                    ('--oem 3 --psm 3 -l guj+eng --dpi 300', f'Neural PSM3 Gujarati+English (Method {i+1})'),
-                    ('--oem 1 --psm 6 -l guj --dpi 300', f'LSTM Gujarati Only (Method {i+1})'),
-                    ('--oem 3 --psm 6 -l guj --dpi 300', f'Neural Gujarati Only (Method {i+1})'),
-                ]
-                
-                for config, description in configs:
-                    try:
-                        text = pytesseract.image_to_string(processed_image, config=config)
-                        if text.strip():
-                            cleaned_text = self.clean_ocr_text(text.strip())
-                            if cleaned_text and len(cleaned_text) > 10:  # Only keep substantial results
-                                all_results.append((cleaned_text, description))
-                                print(f"✅ {description}: {len(cleaned_text)} characters")
-                    except Exception as e:
-                        print(f"❌ {description} failed: {e}")
+                method_results = self._try_ocr_configs(processed_image, languages, f"Method {i+1}")
+                all_results.extend(method_results)
             
             # If no good results, try EasyOCR as fallback
             if not all_results and 'guj' in languages:
                 print("🔄 No good Tesseract results, trying EasyOCR...")
+                # Try EasyOCR on original image first
+                try:
+                    easyocr_text = self.extract_text_with_easyocr(image)
+                    if easyocr_text and len(easyocr_text.strip()) > 0:
+                        all_results.append((easyocr_text.strip(), 'EasyOCR (Original)'))
+                        print(f"✅ EasyOCR (Original): {len(easyocr_text)} characters")
+                except Exception as e:
+                    print(f"❌ EasyOCR (Original) failed: {e}")
+                
+                # Try EasyOCR on preprocessed images
                 for i, processed_image in enumerate(processed_images):
                     try:
                         easyocr_text = self.extract_text_with_easyocr(processed_image)
-                        if easyocr_text and len(easyocr_text) > 10:
-                            all_results.append((easyocr_text, f'EasyOCR (Method {i+1})'))
+                        if easyocr_text and len(easyocr_text.strip()) > 0:
+                            all_results.append((easyocr_text.strip(), f'EasyOCR (Method {i+1})'))
                             print(f"✅ EasyOCR (Method {i+1}): {len(easyocr_text)} characters")
                     except Exception as e:
                         print(f"❌ EasyOCR (Method {i+1}) failed: {e}")
@@ -247,36 +272,118 @@ class OCRProcessor:
             # If still no good results, try with English only
             if not all_results:
                 print("🔄 No good Gujarati results, trying English...")
-                for processed_image in processed_images:
-                    try:
-                        text = pytesseract.image_to_string(processed_image, config='--oem 3 --psm 6 -l eng --dpi 300')
-                        if text.strip():
-                            cleaned_text = self.clean_ocr_text(text.strip())
-                            if cleaned_text and len(cleaned_text) > 10:
-                                all_results.append((cleaned_text, "English Fallback"))
-                    except Exception as e:
-                        print(f"English OCR failed: {e}")
+                english_results = self._try_ocr_configs(image, ['eng'], "English Fallback")
+                all_results.extend(english_results)
             
-            # Return the best result (longest text with most Gujarati characters)
+            # Return the best result
             if all_results:
                 # Score each result based on length and Gujarati character count
                 scored_results = []
                 for text, description in all_results:
-                    gujarati_chars = sum(1 for char in text if '\u0A80' <= char <= '\u0AFF')
-                    score = len(text) + (gujarati_chars * 3)  # Weight Gujarati characters more heavily
-                    scored_results.append((text, score, description))
+                    # Remove whitespace for scoring but keep original
+                    text_clean = text.strip()
+                    if not text_clean:
+                        continue
+                    
+                    gujarati_chars = sum(1 for char in text_clean if '\u0A80' <= char <= '\u0AFF')
+                    english_chars = sum(1 for char in text_clean if char.isalpha() and ord(char) < 128)
+                    
+                    # Score: prefer results with actual text (Gujarati or English)
+                    # For single words, even 1 character is valid
+                    if gujarati_chars > 0 or english_chars > 0:
+                        score = len(text_clean) + (gujarati_chars * 5) + (english_chars * 2)
+                        scored_results.append((text_clean, score, description))
                 
-                # Sort by score and return the best
-                scored_results.sort(key=lambda x: x[1], reverse=True)
-                best_text, score, description = scored_results[0]
-                print(f"🏆 Best result: {description} (score: {score})")
-                return best_text
+                if scored_results:
+                    # Sort by score and return the best
+                    scored_results.sort(key=lambda x: x[1], reverse=True)
+                    best_text, score, description = scored_results[0]
+                    print(f"🏆 Best result: {description} (score: {score}, text: '{best_text}')")
+                    return best_text
             
+            print("❌ No text extracted from image")
             return ""
         
         except Exception as e:
             print(f"Error in advanced OCR: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
+    
+    def _try_ocr_configs(self, image: Image.Image, languages: List[str], method_name: str) -> List[tuple]:
+        """Try multiple OCR configurations on an image and return all valid results"""
+        results = []
+        
+        # Determine language string for Tesseract
+        lang_str = '+'.join(languages) if len(languages) > 1 else languages[0] if languages else 'eng'
+        
+        # PSM modes optimized for different scenarios:
+        # PSM 8 = Single word (best for single word images)
+        # PSM 7 = Single text line (good for short phrases)
+        # PSM 6 = Single uniform block (good for paragraphs)
+        # PSM 3 = Fully automatic (default)
+        # PSM 13 = Raw line (treat image as single text line)
+        
+        # Try configurations in order of preference for single words
+        configs = [
+            # Single word configurations (PSM 8) - BEST for single word images
+            (f'--oem 3 --psm 8 -l {lang_str} --dpi 300', f'Neural Single Word {method_name}'),
+            (f'--oem 1 --psm 8 -l {lang_str} --dpi 300', f'LSTM Single Word {method_name}'),
+            
+            # Single line configurations (PSM 7) - Good for short phrases
+            (f'--oem 3 --psm 7 -l {lang_str} --dpi 300', f'Neural Single Line {method_name}'),
+            (f'--oem 1 --psm 7 -l {lang_str} --dpi 300', f'LSTM Single Line {method_name}'),
+            
+            # Raw line (PSM 13) - Treat as single line
+            (f'--oem 3 --psm 13 -l {lang_str} --dpi 300', f'Neural Raw Line {method_name}'),
+            (f'--oem 1 --psm 13 -l {lang_str} --dpi 300', f'LSTM Raw Line {method_name}'),
+            
+            # Block configurations (PSM 6) - For longer text
+            (f'--oem 3 --psm 6 -l {lang_str} --dpi 300', f'Neural Block {method_name}'),
+            (f'--oem 1 --psm 6 -l {lang_str} --dpi 300', f'LSTM Block {method_name}'),
+            
+            # Auto (PSM 3) - Let Tesseract decide
+            (f'--oem 3 --psm 3 -l {lang_str} --dpi 300', f'Neural Auto {method_name}'),
+            (f'--oem 1 --psm 3 -l {lang_str} --dpi 300', f'LSTM Auto {method_name}'),
+        ]
+        
+        # If Gujarati is in languages, also try Gujarati-only
+        if 'guj' in languages:
+            guj_configs = [
+                (f'--oem 3 --psm 8 -l guj --dpi 300', f'Neural Single Word Gujarati Only {method_name}'),
+                (f'--oem 1 --psm 8 -l guj --dpi 300', f'LSTM Single Word Gujarati Only {method_name}'),
+                (f'--oem 3 --psm 7 -l guj --dpi 300', f'Neural Single Line Gujarati Only {method_name}'),
+                (f'--oem 1 --psm 7 -l guj --dpi 300', f'LSTM Single Line Gujarati Only {method_name}'),
+            ]
+            configs.extend(guj_configs)
+        
+        for config, description in configs:
+            try:
+                # Ensure image is large enough for OCR (minimum 100x100 pixels)
+                test_img = image
+                if image.size[0] < 100 or image.size[1] < 100:
+                    # Scale up very small images
+                    scale = max(100 / image.size[0], 100 / image.size[1])
+                    new_size = (int(image.size[0] * scale), int(image.size[1] * scale))
+                    test_img = image.resize(new_size, Image.Resampling.LANCZOS)
+                    print(f"⚠️  Image too small ({image.size}), scaled to {new_size}")
+                
+                text = pytesseract.image_to_string(test_img, config=config)
+                if text and text.strip():
+                    cleaned_text = self.clean_ocr_text(text.strip())
+                    # Accept any non-empty cleaned text (even single characters for single words)
+                    if cleaned_text and len(cleaned_text.strip()) > 0:
+                        # Remove excessive whitespace but keep the text
+                        cleaned_text = ' '.join(cleaned_text.split())
+                        results.append((cleaned_text, description))
+                        print(f"✅ {description}: '{cleaned_text}' ({len(cleaned_text)} chars)")
+            except pytesseract.TesseractNotFoundError:
+                print(f"❌ {description} failed: Tesseract not found. Please install Tesseract OCR.")
+                break  # Don't try other configs if Tesseract is not installed
+            except Exception as e:
+                print(f"❌ {description} failed: {e}")
+        
+        return results
 
     def clean_ocr_text(self, text: str) -> str:
         """Enhanced text cleaning for Gujarati OCR results"""

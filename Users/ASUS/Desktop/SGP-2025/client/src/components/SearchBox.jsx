@@ -9,6 +9,8 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
   const [queryImage, setQueryImage] = useState(null);
   const [queryImageName, setQueryImageName] = useState('');
   const [ocrPreview, setOcrPreview] = useState('');
+  const [imagePreview, setImagePreview] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -103,6 +105,7 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
       // Reset image selection so the same/new image can be chosen again without refresh
       setQueryImage(null);
       setQueryImageName('');
+      setImagePreview(null);
       if (fileInputRef.current) {
         try { fileInputRef.current.value = null; } catch (e) {}
       }
@@ -111,9 +114,54 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
-    setQueryImage(file || null);
-    setQueryImageName(file ? (file.name || 'image') : '');
+    if (file) {
+      setQueryImage(file);
+      setQueryImageName(file.name || 'image');
+      setOcrPreview('');
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && (file.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(file.name))) {
+      setQueryImage(file);
+      setQueryImageName(file.name || 'image');
+      setOcrPreview('');
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setQueryImage(null);
+    setQueryImageName('');
+    setImagePreview(null);
     setOcrPreview('');
+    if (fileInputRef.current) {
+      try { fileInputRef.current.value = null; } catch (e) {}
+    }
   };
 
   const handleHistoryClick = (historyQuery) => {
@@ -162,11 +210,14 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
             >
               ગુજરાતી કીબોર્ડ
             </button>
-            <label className="px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-200 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all cursor-pointer">
-              Upload Image
+            <label className="px-4 py-2 bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/50 rounded-lg text-slate-200 hover:bg-blue-500/30 hover:border-blue-500 transition-all cursor-pointer flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+              </svg>
+              <span>Upload Image</span>
               <input 
                 type="file" 
-                accept="image/png, image/jpeg" 
+                accept="image/png, image/jpeg, image/jpg" 
                 onChange={handleImageChange} 
                 onClick={(e) => { e.target.value = null; }}
                 ref={fileInputRef}
@@ -248,25 +299,88 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
         </div>
       )}
 
-      {/* Recent Searches */}
-      {queryImage && (
-        <div className="bg-slate-800/30 backdrop-blur-xl rounded-2xl border border-blue-500/30 p-4 mb-4 flex items-center justify-between">
-          <div className="text-slate-200">
-            <div className="text-sm">Query image selected. Click Search to use OCR.</div>
-            <div className="font-semibold truncate max-w-[70vw]">{queryImageName}</div>
+      {/* Image Upload Area with Drag & Drop */}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`mb-4 transition-all duration-300 ${
+          isDragging ? 'opacity-100 scale-105' : 'opacity-100'
+        }`}
+      >
+        {queryImage && imagePreview ? (
+          <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-xl rounded-2xl border border-blue-500/50 p-4 mb-4">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <img 
+                  src={imagePreview} 
+                  alt="Query preview" 
+                  className="w-32 h-32 object-contain rounded-lg border border-slate-600/50 bg-slate-800/50"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  <h4 className="text-white font-semibold">Image Selected for Search</h4>
+                </div>
+                <p className="text-slate-300 text-sm mb-2 truncate">{queryImageName}</p>
+                <p className="text-blue-300 text-xs mb-3">Click "Search" to extract text from this image and search in your document</p>
+                <button
+                  onClick={handleRemoveImage}
+                  className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 border border-red-500/50 transition-all flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                  Remove Image
+                </button>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={() => { setQueryImage(null); setQueryImageName(''); }}
-            className="px-3 py-2 bg-slate-700/60 text-slate-200 rounded-lg hover:bg-red-500/30 border border-slate-600/40"
+        ) : (
+          <div 
+            className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+              isDragging 
+                ? 'border-blue-500 bg-blue-500/10' 
+                : 'border-slate-600/50 bg-slate-800/20 hover:border-blue-500/50 hover:bg-slate-800/30'
+            }`}
           >
-            Remove
-          </button>
-        </div>
-      )}
+            <div className="flex flex-col items-center gap-3">
+              <svg className="w-12 h-12 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+              </svg>
+              <div>
+                <p className="text-slate-300 font-medium mb-1">
+                  {isDragging ? 'Drop your image here' : 'Upload an image to search by word'}
+                </p>
+                <p className="text-slate-400 text-sm">
+                  Drag & drop an image or click "Upload Image" button above
+                </p>
+                <p className="text-slate-500 text-xs mt-2">
+                  Supports PNG, JPG, JPEG • The word in the image will be extracted and searched
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* OCR Preview - Extracted Text */}
       {ocrPreview && (
-        <div className="bg-slate-800/30 backdrop-blur-xl rounded-2xl border border-slate-600/30 p-4 mb-4 text-slate-200">
-          <div className="text-sm">Extracted from image:</div>
-          <div className="font-semibold">{ocrPreview}</div>
+        <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 backdrop-blur-xl rounded-2xl border border-green-500/50 p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-6 h-6 text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <div className="flex-1">
+              <div className="text-green-300 text-sm font-medium mb-1">Text Extracted from Image:</div>
+              <div className="text-white font-semibold text-lg bg-slate-900/50 p-3 rounded-lg border border-green-500/30">
+                {ocrPreview}
+              </div>
+            </div>
+          </div>
         </div>
       )}
       {searchHistory.length > 0 && (
@@ -347,6 +461,10 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
           <div className="flex items-start gap-2">
             <div className="w-2 h-2 bg-pink-400 rounded-full mt-2 flex-shrink-0"></div>
             <p>Results show page numbers and relevance scores</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <div className="w-2 h-2 bg-blue-400 rounded-full mt-2 flex-shrink-0"></div>
+            <p>Upload an image with a word to search automatically using OCR</p>
           </div>
         </div>
       </div>

@@ -108,7 +108,7 @@ cd server
 
 .\venv\Scripts\Activate.ps1
 pip install -r requirements_flask.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ```
 
@@ -296,4 +296,3 @@ For issues and questions:
 
 ---
 
-**Built with ❤️ using React, FastAPI, and AI** 
