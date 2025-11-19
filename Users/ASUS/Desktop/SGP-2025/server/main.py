@@ -165,21 +165,7 @@ async def search_by_image(pdf_filename: str = Form(...), image: UploadFile = Fil
             raise HTTPException(status_code=400, detail="Image file is required")
 
         try:
-            # Read file content into memory
-            image_bytes = await image.read()
-            from io import BytesIO
-            img = Image.open(BytesIO(image_bytes))
-            
-            # Convert to RGB if necessary (some formats like PNG with transparency need this)
-            if img.mode in ('RGBA', 'LA', 'P'):
-                # Create a white background
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-                img = background
-            elif img.mode != 'RGB':
-                img = img.convert('RGB')
+            img = Image.open(image.file)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
@@ -267,22 +253,9 @@ async def upload_image(file: UploadFile = File(...)):
         file_size = image_path.stat().st_size if image_path.exists() else 0
 
         # OCR the image directly (advanced)
-        # Load image fresh for OCR (don't use context manager to keep it open)
         try:
-            img = Image.open(image_path)
-            # Convert to RGB if necessary (some formats like PNG with transparency need this)
-            if img.mode in ('RGBA', 'LA', 'P'):
-                # Create a white background
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                if img.mode == 'P':
-                    img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
-                img = background
-            elif img.mode != 'RGB':
-                img = img.convert('RGB')
-            
-            text = ocr_processor.extract_text_with_advanced_ocr(img, ['guj', 'eng'])
-            img.close()  # Close after processing
+            with Image.open(image_path) as img:
+                text = ocr_processor.extract_text_with_advanced_ocr(img, ['guj', 'eng'])
         except Exception as ie:
             raise HTTPException(status_code=500, detail=f"Failed to OCR image: {ie}")
 
