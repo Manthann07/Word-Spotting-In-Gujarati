@@ -171,7 +171,11 @@ async def search_by_image(pdf_filename: str = Form(...), image: UploadFile = Fil
 
         # OCR (advanced for better Gujarati extraction)
         try:
-            extracted = ocr_processor.extract_text_with_advanced_ocr(img, ['guj','eng'])
+            extracted = ocr_processor.extract_text_with_advanced_ocr(
+                img,
+                ['guj','eng'],
+                min_length=2  # allow short words/phrases for image queries
+            )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to OCR image: {e}")
         finally:

@@ -1,5 +1,5 @@
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 import fitz  # PyMuPDF
 import os
 from typing import List, Dict, Any
@@ -116,8 +116,8 @@ class OCRProcessor:
             print(f"Error preprocessing image: {e}")
             return image
     
-    def advanced_preprocess_for_gujarati(self, image: Image.Image) -> List[Image.Image]:
-        """Advanced preprocessing specifically for Gujarati OCR"""
+    def advanced_preprocess_for_gujarati(self, image: Image.Image, max_variants: int = 6) -> List[Image.Image]:
+        """Advanced preprocessing specifically for Gujarati OCR (capped variants)"""
         processed_images = []
         
         try:
@@ -127,8 +127,6 @@ class OCRProcessor:
             
             # Method 1: Standard preprocessing
             img1 = image.copy()
-            from PIL import ImageEnhance, ImageFilter
-            
             # Enhance contrast
             enhancer = ImageEnhance.Contrast(img1)
             img1 = enhancer.enhance(3.5)
@@ -146,6 +144,10 @@ class OCRProcessor:
                 new_width = int(img1.size[0] * scale_factor)
                 new_height = int(img1.size[1] * scale_factor)
                 img1 = img1.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Auto-contrast + unsharp for thin strokes
+            img1 = ImageOps.autocontrast(img1, cutoff=2)
+            img1 = img1.filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=3))
             
             processed_images.append(img1)
             
@@ -170,6 +172,9 @@ class OCRProcessor:
                 new_height = int(img2.size[1] * scale_factor)
                 img2 = img2.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
+            img2 = ImageOps.autocontrast(img2, cutoff=1)
+            img2 = img2.filter(ImageFilter.UnsharpMask(radius=1.5, percent=150, threshold=2))
+            
             processed_images.append(img2)
             
             # Method 3: Inverted preprocessing (for dark text on light background)
@@ -189,7 +194,26 @@ class OCRProcessor:
                 new_height = int(img3.size[1] * scale_factor)
                 img3 = img3.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
+            img3 = ImageOps.autocontrast(img3, cutoff=1)
+            img3 = img3.filter(ImageFilter.UnsharpMask(radius=1.2, percent=180, threshold=2))
+            
             processed_images.append(img3)
+            
+            # Add slight rotations but cap total variants
+            base_variants = processed_images.copy()
+            for base_img in base_variants:
+                for angle in (-6, 6):
+                    if len(processed_images) >= max_variants:
+                        break
+                    try:
+                        rotated = base_img.rotate(angle, expand=True, fillcolor=255)
+                        processed_images.append(rotated)
+                    except Exception:
+                        continue
+                if len(processed_images) >= max_variants:
+                    break
+            
+            processed_images = processed_images[:max_variants]
             
         except Exception as e:
             print(f"Error in advanced preprocessing: {e}")
@@ -197,8 +221,15 @@ class OCRProcessor:
         
         return processed_images
 
-    def extract_text_with_advanced_ocr(self, image: Image.Image, languages: List[str] = None) -> str:
-        """Advanced OCR extraction with multiple preprocessing methods and EasyOCR fallback"""
+    def extract_text_with_advanced_ocr(self, image: Image.Image, languages: List[str] = None, min_length: int = 10) -> str:
+        """Advanced OCR extraction with multiple preprocessing methods and EasyOCR fallback
+
+        Args:
+            image: PIL image to OCR
+            languages: list of language codes for Tesseract/EasyOCR
+            min_length: minimum number of characters required to treat an OCR attempt as valid.
+                        Defaults to 10 to filter noise, but can be lowered (e.g. 2-3) for word-level crops.
+        """
         if languages is None:
             languages = ['eng']
         
@@ -208,6 +239,9 @@ class OCRProcessor:
             
             all_results = []
             
+            max_configs = 12  # hard cap to avoid runaway processing
+            run_count = 0
+
             for i, processed_image in enumerate(processed_images):
                 print(f"Trying preprocessing method {i+1}...")
                 
@@ -221,12 +255,29 @@ class OCRProcessor:
                     ('--oem 3 --psm 6 -l guj --dpi 300', f'Neural Gujarati Only (Method {i+1})'),
                 ]
                 
+                if min_length <= 6:
+                    configs += [
+                        ('--oem 1 --psm 7 -l guj+eng --dpi 400', f'LSTM Word Gujarati+English (Method {i+1})'),
+                        ('--oem 3 --psm 7 -l guj+eng --dpi 400', f'Neural Word Gujarati+English (Method {i+1})'),
+                        ('--oem 1 --psm 8 -l guj+eng --dpi 400', f'LSTM SingleWord Gujarati+English (Method {i+1})'),
+                        ('--oem 3 --psm 8 -l guj+eng --dpi 400', f'Neural SingleWord Gujarati+English (Method {i+1})'),
+                        ('--oem 1 --psm 7 -l guj --dpi 400', f'LSTM Word Gujarati Only (Method {i+1})'),
+                        ('--oem 3 --psm 7 -l guj --dpi 400', f'Neural Word Gujarati Only (Method {i+1})'),
+                        ('--oem 1 --psm 8 -l guj --dpi 400', f'LSTM SingleWord Gujarati Only (Method {i+1})'),
+                        ('--oem 3 --psm 8 -l guj --dpi 400', f'Neural SingleWord Gujarati Only (Method {i+1})'),
+                        ('--oem 1 --psm 13 -l guj+eng --dpi 400', f'LSTM RawLine Gujarati+English (Method {i+1})'),
+                        ('--oem 3 --psm 13 -l guj+eng --dpi 400', f'Neural RawLine Gujarati+English (Method {i+1})'),
+                    ]
+                
                 for config, description in configs:
+                    if run_count >= max_configs:
+                        break
+                    run_count += 1
                     try:
                         text = pytesseract.image_to_string(processed_image, config=config)
                         if text.strip():
                             cleaned_text = self.clean_ocr_text(text.strip())
-                            if cleaned_text and len(cleaned_text) > 10:  # Only keep substantial results
+                            if cleaned_text and len(cleaned_text) >= max(1, min_length):  # Only keep substantial results
                                 all_results.append((cleaned_text, description))
                                 print(f"✅ {description}: {len(cleaned_text)} characters")
                     except Exception as e:
@@ -238,7 +289,7 @@ class OCRProcessor:
                 for i, processed_image in enumerate(processed_images):
                     try:
                         easyocr_text = self.extract_text_with_easyocr(processed_image)
-                        if easyocr_text and len(easyocr_text) > 10:
+                        if easyocr_text and len(easyocr_text) >= max(1, min_length):
                             all_results.append((easyocr_text, f'EasyOCR (Method {i+1})'))
                             print(f"✅ EasyOCR (Method {i+1}): {len(easyocr_text)} characters")
                     except Exception as e:
@@ -252,7 +303,7 @@ class OCRProcessor:
                         text = pytesseract.image_to_string(processed_image, config='--oem 3 --psm 6 -l eng --dpi 300')
                         if text.strip():
                             cleaned_text = self.clean_ocr_text(text.strip())
-                            if cleaned_text and len(cleaned_text) > 10:
+                            if cleaned_text and len(cleaned_text) >= max(1, min_length):
                                 all_results.append((cleaned_text, "English Fallback"))
                     except Exception as e:
                         print(f"English OCR failed: {e}")
@@ -345,13 +396,13 @@ class OCRProcessor:
         
         return cleaned_text
 
-    def extract_text_with_ocr(self, image: Image.Image, languages: List[str] = None) -> str:
+    def extract_text_with_ocr(self, image: Image.Image, languages: List[str] = None, min_length: int = 10) -> str:
         """Extract text from image using advanced OCR"""
         if languages is None:
             languages = ['eng']
         
         # Use the advanced OCR method for better results
-        return self.extract_text_with_advanced_ocr(image, languages)
+        return self.extract_text_with_advanced_ocr(image, languages, min_length)
     
     def process_scanned_pdf(self, pdf_path: str, languages: List[str] = None) -> List[Dict[str, Any]]:
         """Process a scanned PDF and extract text using OCR"""

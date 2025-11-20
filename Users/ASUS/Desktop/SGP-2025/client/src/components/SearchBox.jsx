@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { searchPDF, searchByImage, ocrImage } from '../api';
+import { searchPDF, searchByImage } from '../api';
 
 const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
   const [query, setQuery] = useState('');
@@ -71,18 +71,19 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
           onSearchError('Please select a PDF to search in. You uploaded an image as the document.');
           return;
         }
-        // 1) OCR the query image to get Gujarati text
-        const extracted = await ocrImage(queryImage);
-        const normalized = (extracted || '').replace(/\s+/g, ' ').trim();
-        if (!normalized) {
-          onSearchError('Could not read any text from the image.');
-          return;
+        const response = await searchByImage(selectedPDF, queryImage);
+        const normalized = (response?.extracted_query || response?.query || '').replace(/\s+/g, ' ').trim();
+        if (normalized) {
+          setOcrPreview(normalized);
+          setQuery(normalized);
+          setSearchHistory(prev => {
+            const newHistory = [normalized, ...prev.filter(item => item !== normalized)].slice(0, 5);
+            return newHistory;
+          });
+        } else {
+          setOcrPreview('');
         }
-        setOcrPreview(normalized);
-        setQuery(normalized);
-        // 2) Run normal search with the extracted text
-        const results = await searchPDF(normalized, selectedPDF);
-        onSearchResults({ ...results, extracted_query: normalized });
+        onSearchResults(response);
       } else {
         if (!query.trim()) {
           onSearchError('Please enter a search query or upload an image');
