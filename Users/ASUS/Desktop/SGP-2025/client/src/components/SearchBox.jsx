@@ -9,10 +9,17 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
   const [queryImage, setQueryImage] = useState(null);
   const [queryImageName, setQueryImageName] = useState('');
   const [ocrPreview, setOcrPreview] = useState('');
+  const [pressedKey, setPressedKey] = useState(null);
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
 
-  const insertAtCursor = (textToInsert) => {
+  const insertAtCursor = (textToInsert, keyId = null) => {
+    // Visual feedback for pressed key
+    if (keyId !== null) {
+      setPressedKey(keyId);
+      setTimeout(() => setPressedKey(null), 200);
+    }
+    
     const input = inputRef.current;
     if (!input) {
       setQuery(prev => prev + textToInsert);
@@ -31,6 +38,10 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
   };
 
   const handleBackspace = () => {
+    // Visual feedback
+    setPressedKey('backspace');
+    setTimeout(() => setPressedKey(null), 200);
+    
     const input = inputRef.current;
     if (!input) {
       setQuery(prev => prev.slice(0, -1));
@@ -204,46 +215,220 @@ const SearchBox = ({ selectedPDF, onSearchResults, onSearchError }) => {
 
       {/* Virtual Gujarati Keyboard */}
       {showKeyboard && (
-        <div className="mb-6 bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-600/30 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-white font-semibold">Gujarati Keyboard</h4>
-            <button onClick={() => setShowKeyboard(false)} className="text-slate-300 hover:text-white">Close</button>
-          </div>
-          {/* Keys */}
-          <div className="space-y-2">
-            {/* Row 1 */}
-            <div className="flex flex-wrap gap-2">
-              {['ઁ','઀','ઁ','અ','આ','ઇ','ઈ','ઉ','ઊ','ઋ','એ','ઐ','ઓ','ઔ','અં','અઃ'].map(k => (
-                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
-                  {k}
-                </button>
-              ))}
+        <div className="mb-6 relative group animate-fade-in">
+          {/* Glow effect behind keyboard */}
+          <div className="absolute -inset-1 bg-gradient-to-r from-purple-500/20 via-pink-500/20 to-blue-500/20 rounded-2xl blur-xl opacity-50 group-hover:opacity-70 transition duration-1000"></div>
+          
+          <div className="relative bg-slate-800/70 backdrop-blur-xl rounded-2xl border border-purple-500/30 px-3 py-4 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-500/20 to-blue-500/20 rounded-xl flex items-center justify-center border border-purple-500/30">
+                  <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                  </svg>
+                </div>
+                <h4 className="text-white font-semibold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">Gujarati Keyboard</h4>
+              </div>
+              <button 
+                onClick={() => setShowKeyboard(false)} 
+                className="px-4 py-2 bg-slate-700/50 border border-slate-600/50 rounded-lg text-slate-300 hover:bg-red-500/20 hover:border-red-500/50 hover:text-white transition-all duration-300 transform hover:scale-105"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
             </div>
-            {/* Row 2 */}
-            <div className="flex flex-wrap gap-2">
-              {['ક','ખ','ગ','ઘ','ચ','છ','જ','ઝ','ટ','ઠ','ડ','ઢ','ણ','ત','થ','દ','ધ','ન'].map(k => (
-                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
-                  {k}
+            
+            {/* Keys */}
+            <div className="space-y-2">
+              {/* Row 1 - Vowels and Modifiers */}
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {['ં','ઁ','ઃ','અ','આ','ઇ','ઈ','ઉ','ઊ','ઋ','એ','ઐ','ઓ','ઔ','અં','અઃ'].map((k, idx) => {
+                  const keyId = `row1-${idx}-${k}`;
+                  const isPressed = pressedKey === keyId;
+                  return (
+                    <button 
+                      key={keyId} 
+                      type="button" 
+                      onClick={() => insertAtCursor(k, keyId)} 
+                      className={`relative px-3 py-2 rounded-lg text-white font-medium border transition-all duration-200 overflow-hidden
+                        ${isPressed 
+                          ? 'bg-gradient-to-br from-purple-500 to-purple-600 border-purple-400 scale-90 shadow-lg shadow-purple-500/50' 
+                          : 'bg-gradient-to-br from-slate-700/80 to-slate-800/80 border-slate-600/50 hover:from-purple-500/60 hover:to-purple-600/60 hover:border-purple-500/70 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/30 active:scale-90'
+                        }`}
+                    >
+                      <span className="relative z-10">{k}</span>
+                      {isPressed && (
+                        <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Row 2 - Consonants */}
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {['ક','ખ','ગ','ઘ','ચ','છ','જ','ઝ','ઞ','ટ','ઠ','ડ','ઢ','ણ','ત','થ','દ','ધ','ન'].map((k, idx) => {
+                  const keyId = `row2-${idx}-${k}`;
+                  const isPressed = pressedKey === keyId;
+                  return (
+                    <button 
+                      key={keyId} 
+                      type="button" 
+                      onClick={() => insertAtCursor(k, keyId)} 
+                      className={`relative px-3 py-2 rounded-lg text-white font-medium border transition-all duration-200 overflow-hidden
+                        ${isPressed 
+                          ? 'bg-gradient-to-br from-blue-500 to-blue-600 border-blue-400 scale-90 shadow-lg shadow-blue-500/50' 
+                          : 'bg-gradient-to-br from-slate-700/80 to-slate-800/80 border-slate-600/50 hover:from-blue-500/60 hover:to-blue-600/60 hover:border-blue-500/70 hover:scale-105 hover:shadow-lg hover:shadow-blue-500/30 active:scale-90'
+                        }`}
+                    >
+                      <span className="relative z-10">{k}</span>
+                      {isPressed && (
+                        <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Row 3 - More Consonants */}
+              <div className="flex flex-wrap gap-1.5 justify-center">
+                {['પ','ફ','બ','ભ','મ','ય','ર','લ','વ','શ','ષ','સ','હ','ળ','ક્ષ','જ્ઞ'].map((k, idx) => {
+                  const keyId = `row3-${idx}-${k}`;
+                  const isPressed = pressedKey === keyId;
+                  return (
+                    <button 
+                      key={keyId} 
+                      type="button" 
+                      onClick={() => insertAtCursor(k, keyId)} 
+                      className={`relative px-3 py-2 rounded-lg text-white font-medium border transition-all duration-200 overflow-hidden
+                        ${isPressed 
+                          ? 'bg-gradient-to-br from-pink-500 to-pink-600 border-pink-400 scale-90 shadow-lg shadow-pink-500/50' 
+                          : 'bg-gradient-to-br from-slate-700/80 to-slate-800/80 border-slate-600/50 hover:from-pink-500/60 hover:to-pink-600/60 hover:border-pink-500/70 hover:scale-105 hover:shadow-lg hover:shadow-pink-500/30 active:scale-90'
+                        }`}
+                    >
+                      <span className="relative z-10">{k}</span>
+                      {isPressed && (
+                        <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Row 4 - Matras and Special Keys */}
+              <div className="flex flex-wrap gap-1.5 justify-center items-center">
+                {['ા','િ','ી','ુ','ૂ','ૃ','ે','ૈ','ો','ૌ','્','ં','ઃ','઼'].map((k, idx) => {
+                  const keyId = `matra-${idx}-${k}`;
+                  const isPressed = pressedKey === keyId;
+                  return (
+                    <button 
+                      key={keyId} 
+                      type="button" 
+                      onClick={() => insertAtCursor(k, keyId)} 
+                      className={`relative px-3 py-2 rounded-lg text-white font-medium border transition-all duration-200 overflow-hidden
+                        ${isPressed 
+                          ? 'bg-gradient-to-br from-purple-500 to-blue-500 border-purple-400 scale-90 shadow-lg shadow-purple-500/50' 
+                          : 'bg-gradient-to-br from-slate-700/80 to-slate-800/80 border-slate-600/50 hover:from-purple-500/60 hover:to-blue-500/60 hover:border-purple-500/70 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/30 active:scale-90'
+                        }`}
+                    >
+                      <span className="relative z-10">{k}</span>
+                      {isPressed && (
+                        <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                      )}
+                    </button>
+                  );
+                })}
+                
+                {/* Numbers Row */}
+                <div className="flex gap-1.5 ml-2">
+                  {['૦','૧','૨','૩','૪','૫','૬','૭','૮','૯'].map((k, idx) => {
+                    const keyId = `num-${idx}-${k}`;
+                    const isPressed = pressedKey === keyId;
+                    return (
+                      <button 
+                        key={keyId} 
+                        type="button" 
+                        onClick={() => insertAtCursor(k, keyId)} 
+                        className={`relative px-3 py-2 rounded-lg text-white font-medium border transition-all duration-200 overflow-hidden
+                          ${isPressed 
+                            ? 'bg-gradient-to-br from-blue-500 to-purple-500 border-blue-400 scale-90 shadow-lg shadow-blue-500/50' 
+                            : 'bg-gradient-to-br from-slate-700/80 to-slate-800/80 border-slate-600/50 hover:from-blue-500/60 hover:to-purple-500/60 hover:border-blue-500/70 hover:scale-105 hover:shadow-lg hover:shadow-blue-500/30 active:scale-90'
+                          }`}
+                      >
+                        <span className="relative z-10">{k}</span>
+                        {isPressed && (
+                          <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                {/* Punctuation */}
+                <div className="flex gap-1.5 ml-2">
+                  {['.', ',', ';', ':'].map((k, idx) => {
+                    const keyId = `punc-${idx}-${k}`;
+                    const isPressed = pressedKey === keyId;
+                    return (
+                      <button 
+                        key={keyId} 
+                        type="button" 
+                        onClick={() => insertAtCursor(k, keyId)} 
+                        className={`relative px-3 py-2 rounded-lg text-white font-medium border transition-all duration-200 overflow-hidden
+                          ${isPressed 
+                            ? 'bg-gradient-to-br from-slate-600 to-slate-700 border-slate-500 scale-90 shadow-lg' 
+                            : 'bg-gradient-to-br from-slate-700/80 to-slate-800/80 border-slate-600/50 hover:from-slate-600/80 hover:to-slate-700/80 hover:border-slate-500/70 hover:scale-105 active:scale-90'
+                          }`}
+                      >
+                        <span className="relative z-10">{k}</span>
+                        {isPressed && (
+                          <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                {/* Space Button */}
+                <button 
+                  type="button" 
+                  onClick={() => insertAtCursor(' ', 'space')} 
+                  className={`relative px-5 py-2 ml-1.5 rounded-lg text-white font-semibold border transition-all duration-200 flex items-center gap-2 overflow-hidden
+                    ${pressedKey === 'space'
+                      ? 'bg-gradient-to-r from-purple-500 to-blue-500 border-purple-400 scale-95 shadow-lg shadow-purple-500/50'
+                      : 'bg-gradient-to-r from-purple-500/60 to-blue-500/60 border-purple-400/50 hover:from-purple-500 hover:to-blue-500 hover:border-purple-400 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/40 active:scale-95'
+                    }`}
+                >
+                  <svg className="w-4 h-4 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                  </svg>
+                  <span className="relative z-10">Space</span>
+                  {pressedKey === 'space' && (
+                    <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                  )}
                 </button>
-              ))}
-            </div>
-            {/* Row 3 */}
-            <div className="flex flex-wrap gap-2">
-              {['પ','ફ','બ','ભ','મ','ય','ર','લ','વ','શ','ષ','સ','હ','ળ','ક્ષા','ज्ञ'].map(k => (
-                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
-                  {k}
+                
+                {/* Backspace Button */}
+                <button 
+                  type="button" 
+                  onClick={handleBackspace} 
+                  className={`relative px-5 py-2 ml-1.5 rounded-lg text-white font-semibold border transition-all duration-200 flex items-center gap-2 overflow-hidden
+                    ${pressedKey === 'backspace'
+                      ? 'bg-gradient-to-r from-red-500 to-pink-500 border-red-400 scale-95 shadow-lg shadow-red-500/50'
+                      : 'bg-gradient-to-r from-red-500/60 to-pink-500/60 border-red-400/50 hover:from-red-500 hover:to-pink-500 hover:border-red-400 hover:scale-105 hover:shadow-lg hover:shadow-red-500/40 active:scale-95'
+                    }`}
+                >
+                  <svg className="w-5 h-5 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z"></path>
+                  </svg>
+                  <span className="relative z-10 hidden sm:inline">Delete</span>
+                  {pressedKey === 'backspace' && (
+                    <span className="absolute inset-0 bg-white/20 rounded-lg animate-ping"></span>
+                  )}
                 </button>
-              ))}
-            </div>
-            {/* Matras */}
-            <div className="flex flex-wrap gap-2">
-              {['ા','િ','ી','ુ','ૂ','ૃ','ે','ૈ','ો','ૌ','્','ં','ઃ','઼'].map(k => (
-                <button key={k} type="button" onClick={() => insertAtCursor(k)} className="px-3 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">
-                  {k}
-                </button>
-              ))}
-              <button type="button" onClick={() => insertAtCursor(' ')} className="px-6 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-purple-600/40 border border-slate-600/40">Space</button>
-              <button type="button" onClick={handleBackspace} className="px-6 py-2 rounded-lg bg-slate-700/50 text-white hover:bg-red-600/40 border border-slate-600/40">⌫</button>
+              </div>
             </div>
           </div>
         </div>

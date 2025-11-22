@@ -184,7 +184,15 @@ async def search_by_image(pdf_filename: str = Form(...), image: UploadFile = Fil
             except Exception:
                 pass
 
+        # Normalize the extracted query for better matching
+        import unicodedata
         extracted_query = (extracted or '').strip()
+        if extracted_query:
+            # Normalize Unicode to NFC form for consistent matching
+            extracted_query = unicodedata.normalize('NFC', extracted_query)
+            # Additional normalization using OCR processor's method
+            extracted_query = ocr_processor.normalize_gujarati_text(extracted_query)
+        
         if not extracted_query:
             raise HTTPException(status_code=422, detail="Could not read any text from the image")
 

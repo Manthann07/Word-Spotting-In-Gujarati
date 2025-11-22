@@ -117,57 +117,78 @@ class OCRProcessor:
             return image
     
     def advanced_preprocess_for_gujarati(self, image: Image.Image, max_variants: int = 6) -> List[Image.Image]:
-        """Advanced preprocessing specifically for Gujarati OCR (capped variants)"""
+        """Advanced preprocessing specifically for Gujarati OCR (capped variants)
+        
+        Optimized for both single words and longer text, with better handling
+        for Gujarati character recognition.
+        """
         processed_images = []
         
         try:
+            # Detect if this is likely a single word/short phrase (smaller image)
+            is_small_image = image.size[0] < 1000 or image.size[1] < 500
+            
             # Convert to grayscale
             if image.mode != 'L':
                 image = image.convert('L')
             
-            # Method 1: Standard preprocessing
+            # Method 1: Standard preprocessing (optimized for Gujarati)
             img1 = image.copy()
-            # Enhance contrast
+            # Enhance contrast (higher for better character separation)
             enhancer = ImageEnhance.Contrast(img1)
             img1 = enhancer.enhance(3.5)
             
-            # Enhance sharpness
+            # Enhance sharpness (important for Gujarati characters with matras)
             sharpness_enhancer = ImageEnhance.Sharpness(img1)
             img1 = sharpness_enhancer.enhance(2.5)
             
-            # Apply slight blur to reduce noise
+            # Apply slight blur to reduce noise (but preserve character details)
             img1 = img1.filter(ImageFilter.GaussianBlur(radius=0.5))
             
-            # Resize for better OCR
-            if img1.size[0] < 2000 or img1.size[1] < 1500:
-                scale_factor = max(2000 / img1.size[0], 1500 / img1.size[1])
+            # Resize for better OCR (more aggressive for small images)
+            if is_small_image:
+                # For small images (likely single words), scale up more aggressively
+                target_size = (3000, 2000)
+            else:
+                target_size = (2000, 1500)
+                
+            if img1.size[0] < target_size[0] or img1.size[1] < target_size[1]:
+                scale_factor = max(target_size[0] / img1.size[0], target_size[1] / img1.size[1])
+                # Cap scaling to avoid too much interpolation
+                scale_factor = min(scale_factor, 4.0)
                 new_width = int(img1.size[0] * scale_factor)
                 new_height = int(img1.size[1] * scale_factor)
                 img1 = img1.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            # Auto-contrast + unsharp for thin strokes
+            # Auto-contrast + unsharp for thin strokes (important for Gujarati)
             img1 = ImageOps.autocontrast(img1, cutoff=2)
             img1 = img1.filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=3))
             
             processed_images.append(img1)
             
-            # Method 2: High contrast preprocessing
+            # Method 2: High contrast preprocessing (best for clear, bold text)
             img2 = image.copy()
             
             # Apply very high contrast
             enhancer = ImageEnhance.Contrast(img2)
             img2 = enhancer.enhance(4.0)
             
-            # Enhance brightness
+            # Enhance brightness slightly
             brightness_enhancer = ImageEnhance.Brightness(img2)
             img2 = brightness_enhancer.enhance(1.3)
             
-            # Apply edge enhancement
+            # Apply edge enhancement (helps with character boundaries)
             img2 = img2.filter(ImageFilter.EDGE_ENHANCE_MORE)
             
             # Resize
-            if img2.size[0] < 2000 or img2.size[1] < 1500:
-                scale_factor = max(2000 / img2.size[0], 1500 / img2.size[1])
+            if is_small_image:
+                target_size = (3000, 2000)
+            else:
+                target_size = (2000, 1500)
+                
+            if img2.size[0] < target_size[0] or img2.size[1] < target_size[1]:
+                scale_factor = max(target_size[0] / img2.size[0], target_size[1] / img2.size[1])
+                scale_factor = min(scale_factor, 4.0)
                 new_width = int(img2.size[0] * scale_factor)
                 new_height = int(img2.size[1] * scale_factor)
                 img2 = img2.resize((new_width, new_height), Image.Resampling.LANCZOS)
@@ -188,8 +209,14 @@ class OCRProcessor:
             img3 = enhancer.enhance(3.0)
             
             # Resize
-            if img3.size[0] < 2000 or img3.size[1] < 1500:
-                scale_factor = max(2000 / img3.size[0], 1500 / img3.size[1])
+            if is_small_image:
+                target_size = (3000, 2000)
+            else:
+                target_size = (2000, 1500)
+                
+            if img3.size[0] < target_size[0] or img3.size[1] < target_size[1]:
+                scale_factor = max(target_size[0] / img3.size[0], target_size[1] / img3.size[1])
+                scale_factor = min(scale_factor, 4.0)
                 new_width = int(img3.size[0] * scale_factor)
                 new_height = int(img3.size[1] * scale_factor)
                 img3 = img3.resize((new_width, new_height), Image.Resampling.LANCZOS)
@@ -199,19 +226,44 @@ class OCRProcessor:
             
             processed_images.append(img3)
             
-            # Add slight rotations but cap total variants
-            base_variants = processed_images.copy()
-            for base_img in base_variants:
-                for angle in (-6, 6):
+            # Method 4: Binarization approach (for very clear text)
+            if len(processed_images) < max_variants:
+                img4 = image.copy()
+                # Convert to binary-like (high contrast)
+                enhancer = ImageEnhance.Contrast(img4)
+                img4 = enhancer.enhance(5.0)
+                # Threshold-like effect
+                img4 = ImageOps.autocontrast(img4, cutoff=0)
+                
+                if is_small_image:
+                    target_size = (3000, 2000)
+                else:
+                    target_size = (2000, 1500)
+                    
+                if img4.size[0] < target_size[0] or img4.size[1] < target_size[1]:
+                    scale_factor = max(target_size[0] / img4.size[0], target_size[1] / img4.size[1])
+                    scale_factor = min(scale_factor, 4.0)
+                    new_width = int(img4.size[0] * scale_factor)
+                    new_height = int(img4.size[1] * scale_factor)
+                    img4 = img4.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                img4 = img4.filter(ImageFilter.UnsharpMask(radius=1, percent=250, threshold=1))
+                processed_images.append(img4)
+            
+            # Add slight rotations but cap total variants (only for small images)
+            if is_small_image and len(processed_images) < max_variants:
+                base_variants = processed_images[:2].copy()  # Only rotate first 2 methods
+                for base_img in base_variants:
+                    for angle in (-3, 3):  # Smaller angles for word images
+                        if len(processed_images) >= max_variants:
+                            break
+                        try:
+                            rotated = base_img.rotate(angle, expand=True, fillcolor=255)
+                            processed_images.append(rotated)
+                        except Exception:
+                            continue
                     if len(processed_images) >= max_variants:
                         break
-                    try:
-                        rotated = base_img.rotate(angle, expand=True, fillcolor=255)
-                        processed_images.append(rotated)
-                    except Exception:
-                        continue
-                if len(processed_images) >= max_variants:
-                    break
             
             processed_images = processed_images[:max_variants]
             
@@ -222,7 +274,7 @@ class OCRProcessor:
         return processed_images
 
     def extract_text_with_advanced_ocr(self, image: Image.Image, languages: List[str] = None, min_length: int = 10) -> str:
-        """Advanced OCR extraction with multiple preprocessing methods and EasyOCR fallback
+        """Advanced OCR extraction with multiple preprocessing methods and EasyOCR priority for Gujarati
 
         Args:
             image: PIL image to OCR
@@ -234,116 +286,155 @@ class OCRProcessor:
             languages = ['eng']
         
         try:
+            # Normalize Unicode first
+            import unicodedata
+            
             # Get multiple preprocessed versions
             processed_images = self.advanced_preprocess_for_gujarati(image)
             
             all_results = []
             
-            max_configs = 12  # hard cap to avoid runaway processing
+            # PRIORITY 1: Try EasyOCR first for Gujarati (often more accurate for Indic languages)
+            if 'guj' in languages and self.easyocr_reader:
+                print("🔄 Trying EasyOCR first (best for Gujarati)...")
+                for i, processed_image in enumerate(processed_images[:3]):  # Try first 3 preprocessing methods
+                    try:
+                        easyocr_text = self.extract_text_with_easyocr(processed_image)
+                        if easyocr_text:
+                            # Normalize and clean
+                            normalized = unicodedata.normalize('NFC', easyocr_text)
+                            cleaned_text = self.clean_ocr_text(normalized)
+                            if cleaned_text and len(cleaned_text.strip()) >= max(1, min_length):
+                                all_results.append((cleaned_text.strip(), f'EasyOCR (Method {i+1})', 100))  # High priority
+                                print(f"✅ EasyOCR (Method {i+1}): {cleaned_text.strip()}")
+                                # If we got a good result with Gujarati characters, prefer it
+                                guj_chars = sum(1 for char in cleaned_text if '\u0A80' <= char <= '\u0AFF')
+                                if guj_chars > 0:
+                                    print(f"   Found {guj_chars} Gujarati characters")
+                    except Exception as e:
+                        print(f"❌ EasyOCR (Method {i+1}) failed: {e}")
+            
+            # PRIORITY 2: Try Tesseract with optimized configs for Gujarati
+            max_configs = 15  # Increased for better coverage
             run_count = 0
 
             for i, processed_image in enumerate(processed_images):
-                print(f"Trying preprocessing method {i+1}...")
+                print(f"Trying Tesseract preprocessing method {i+1}...")
                 
-                # Try different OCR configurations for each preprocessed image
-                configs = [
-                    ('--oem 1 --psm 6 -l guj+eng --dpi 300', f'LSTM Gujarati+English (Method {i+1})'),
-                    ('--oem 3 --psm 6 -l guj+eng --dpi 300', f'Neural Gujarati+English (Method {i+1})'),
-                    ('--oem 1 --psm 3 -l guj+eng --dpi 300', f'LSTM PSM3 Gujarati+English (Method {i+1})'),
-                    ('--oem 3 --psm 3 -l guj+eng --dpi 300', f'Neural PSM3 Gujarati+English (Method {i+1})'),
-                    ('--oem 1 --psm 6 -l guj --dpi 300', f'LSTM Gujarati Only (Method {i+1})'),
-                    ('--oem 3 --psm 6 -l guj --dpi 300', f'Neural Gujarati Only (Method {i+1})'),
-                ]
-                
+                # Optimized configs for single words/short phrases (when min_length is low)
                 if min_length <= 6:
-                    configs += [
-                        ('--oem 1 --psm 7 -l guj+eng --dpi 400', f'LSTM Word Gujarati+English (Method {i+1})'),
-                        ('--oem 3 --psm 7 -l guj+eng --dpi 400', f'Neural Word Gujarati+English (Method {i+1})'),
-                        ('--oem 1 --psm 8 -l guj+eng --dpi 400', f'LSTM SingleWord Gujarati+English (Method {i+1})'),
-                        ('--oem 3 --psm 8 -l guj+eng --dpi 400', f'Neural SingleWord Gujarati+English (Method {i+1})'),
-                        ('--oem 1 --psm 7 -l guj --dpi 400', f'LSTM Word Gujarati Only (Method {i+1})'),
-                        ('--oem 3 --psm 7 -l guj --dpi 400', f'Neural Word Gujarati Only (Method {i+1})'),
-                        ('--oem 1 --psm 8 -l guj --dpi 400', f'LSTM SingleWord Gujarati Only (Method {i+1})'),
-                        ('--oem 3 --psm 8 -l guj --dpi 400', f'Neural SingleWord Gujarati Only (Method {i+1})'),
-                        ('--oem 1 --psm 13 -l guj+eng --dpi 400', f'LSTM RawLine Gujarati+English (Method {i+1})'),
-                        ('--oem 3 --psm 13 -l guj+eng --dpi 400', f'Neural RawLine Gujarati+English (Method {i+1})'),
+                    configs = [
+                        # Single word/short phrase configs (best for image queries)
+                        ('--oem 3 --psm 8 -l guj+eng --dpi 400', f'Neural SingleWord Gujarati+English (Method {i+1})', 90),
+                        ('--oem 1 --psm 8 -l guj+eng --dpi 400', f'LSTM SingleWord Gujarati+English (Method {i+1})', 85),
+                        ('--oem 3 --psm 7 -l guj+eng --dpi 400', f'Neural Word Gujarati+English (Method {i+1})', 80),
+                        ('--oem 1 --psm 7 -l guj+eng --dpi 400', f'LSTM Word Gujarati+English (Method {i+1})', 75),
+                        ('--oem 3 --psm 8 -l guj --dpi 400', f'Neural SingleWord Gujarati Only (Method {i+1})', 88),
+                        ('--oem 1 --psm 8 -l guj --dpi 400', f'LSTM SingleWord Gujarati Only (Method {i+1})', 83),
+                        ('--oem 3 --psm 7 -l guj --dpi 400', f'Neural Word Gujarati Only (Method {i+1})', 78),
+                        ('--oem 1 --psm 7 -l guj --dpi 400', f'LSTM Word Gujarati Only (Method {i+1})', 73),
+                        ('--oem 3 --psm 13 -l guj+eng --dpi 400', f'Neural RawLine Gujarati+English (Method {i+1})', 70),
+                        ('--oem 1 --psm 13 -l guj+eng --dpi 400', f'LSTM RawLine Gujarati+English (Method {i+1})', 65),
+                    ]
+                else:
+                    # Standard configs for longer text
+                    configs = [
+                        ('--oem 3 --psm 6 -l guj+eng --dpi 300', f'Neural Gujarati+English (Method {i+1})', 85),
+                        ('--oem 1 --psm 6 -l guj+eng --dpi 300', f'LSTM Gujarati+English (Method {i+1})', 80),
+                        ('--oem 3 --psm 3 -l guj+eng --dpi 300', f'Neural PSM3 Gujarati+English (Method {i+1})', 75),
+                        ('--oem 1 --psm 3 -l guj+eng --dpi 300', f'LSTM PSM3 Gujarati+English (Method {i+1})', 70),
+                        ('--oem 3 --psm 6 -l guj --dpi 300', f'Neural Gujarati Only (Method {i+1})', 83),
+                        ('--oem 1 --psm 6 -l guj --dpi 300', f'LSTM Gujarati Only (Method {i+1})', 78),
                     ]
                 
-                for config, description in configs:
+                for config, description, priority in configs:
                     if run_count >= max_configs:
                         break
                     run_count += 1
                     try:
                         text = pytesseract.image_to_string(processed_image, config=config)
                         if text.strip():
-                            cleaned_text = self.clean_ocr_text(text.strip())
-                            if cleaned_text and len(cleaned_text) >= max(1, min_length):  # Only keep substantial results
-                                all_results.append((cleaned_text, description))
-                                print(f"✅ {description}: {len(cleaned_text)} characters")
+                            # Normalize Unicode first
+                            normalized = unicodedata.normalize('NFC', text.strip())
+                            cleaned_text = self.clean_ocr_text(normalized)
+                            if cleaned_text and len(cleaned_text.strip()) >= max(1, min_length):
+                                all_results.append((cleaned_text.strip(), description, priority))
+                                print(f"✅ {description}: {cleaned_text.strip()[:50]}")
                     except Exception as e:
                         print(f"❌ {description} failed: {e}")
             
-            # If no good results, try EasyOCR as fallback
-            if not all_results and 'guj' in languages:
-                print("🔄 No good Tesseract results, trying EasyOCR...")
-                for i, processed_image in enumerate(processed_images):
-                    try:
-                        easyocr_text = self.extract_text_with_easyocr(processed_image)
-                        if easyocr_text and len(easyocr_text) >= max(1, min_length):
-                            all_results.append((easyocr_text, f'EasyOCR (Method {i+1})'))
-                            print(f"✅ EasyOCR (Method {i+1}): {len(easyocr_text)} characters")
-                    except Exception as e:
-                        print(f"❌ EasyOCR (Method {i+1}) failed: {e}")
-            
-            # If still no good results, try with English only
+            # PRIORITY 3: If still no good results, try English only
             if not all_results:
                 print("🔄 No good Gujarati results, trying English...")
-                for processed_image in processed_images:
+                for processed_image in processed_images[:2]:  # Just try first 2 methods
                     try:
                         text = pytesseract.image_to_string(processed_image, config='--oem 3 --psm 6 -l eng --dpi 300')
                         if text.strip():
-                            cleaned_text = self.clean_ocr_text(text.strip())
-                            if cleaned_text and len(cleaned_text) >= max(1, min_length):
-                                all_results.append((cleaned_text, "English Fallback"))
+                            normalized = unicodedata.normalize('NFC', text.strip())
+                            cleaned_text = self.clean_ocr_text(normalized)
+                            if cleaned_text and len(cleaned_text.strip()) >= max(1, min_length):
+                                all_results.append((cleaned_text.strip(), "English Fallback", 50))
                     except Exception as e:
                         print(f"English OCR failed: {e}")
             
-            # Return the best result (longest text with most Gujarati characters)
+            # Return the best result with improved scoring
             if all_results:
-                # Score each result based on length and Gujarati character count
                 scored_results = []
-                for text, description in all_results:
+                for text, description, base_priority in all_results:
+                    # Count Gujarati characters
                     gujarati_chars = sum(1 for char in text if '\u0A80' <= char <= '\u0AFF')
-                    score = len(text) + (gujarati_chars * 3)  # Weight Gujarati characters more heavily
-                    scored_results.append((text, score, description))
+                    total_chars = len(text)
+                    
+                    # Calculate quality score
+                    if total_chars > 0:
+                        guj_ratio = gujarati_chars / total_chars
+                    else:
+                        guj_ratio = 0
+                    
+                    # Score formula: base priority + length bonus + Gujarati character bonus
+                    # Prioritize results with more Gujarati characters
+                    score = base_priority + (total_chars * 0.5) + (gujarati_chars * 5) + (guj_ratio * 20)
+                    
+                    scored_results.append((text, score, description, gujarati_chars))
                 
-                # Sort by score and return the best
+                # Sort by score (highest first)
                 scored_results.sort(key=lambda x: x[1], reverse=True)
-                best_text, score, description = scored_results[0]
-                print(f"🏆 Best result: {description} (score: {score})")
+                best_text, score, description, guj_count = scored_results[0]
+                
+                # Normalize the final result
+                best_text = unicodedata.normalize('NFC', best_text)
+                
+                print(f"🏆 Best result: {description} (score: {score:.1f}, Gujarati chars: {guj_count})")
+                print(f"   Extracted text: {best_text}")
                 return best_text
             
             return ""
         
         except Exception as e:
             print(f"Error in advanced OCR: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
 
     def clean_ocr_text(self, text: str) -> str:
-        """Enhanced text cleaning for Gujarati OCR results"""
+        """Enhanced text cleaning for Gujarati OCR results with better character preservation"""
         if not text:
             return text
         
-        # Remove common OCR artifacts
-        cleaned_text = text
+        import unicodedata
         
-        # Remove excessive whitespace
+        # Normalize Unicode first (NFC form)
+        cleaned_text = unicodedata.normalize('NFC', text)
+        
+        # Remove excessive whitespace but preserve single spaces
         cleaned_text = ' '.join(cleaned_text.split())
         
-        # Fix common OCR mistakes for Gujarati
+        # Enhanced replacements for common OCR mistakes in Gujarati
         replacements = {
+            # Punctuation fixes
             '|': '।',  # Fix vertical bar to Gujarati danda
             '॥': '॥',  # Fix double danda
+            # Number fixes (only if in context of Gujarati text)
             '0': '૦',  # Fix English 0 to Gujarati 0
             '1': '૧',  # Fix English 1 to Gujarati 1
             '2': '૨',  # Fix English 2 to Gujarati 2
@@ -354,6 +445,7 @@ class OCRProcessor:
             '7': '૭',  # Fix English 7 to Gujarati 7
             '8': '૮',  # Fix English 8 to Gujarati 8
             '9': '૯',  # Fix English 9 to Gujarati 9
+            # Common OCR character misrecognitions
             '¥': 'ય',  # Fix common OCR mistake
             '¢': 'ચ',  # Fix common OCR mistake
             '£': 'ળ',  # Fix common OCR mistake
@@ -376,25 +468,45 @@ class OCRProcessor:
             '½': 'ટ',  # Fix common OCR mistake
             '¾': 'ઠ',  # Fix common OCR mistake
             '¿': 'ડ',  # Fix common OCR mistake
+            # Additional common mistakes
+            'à': 'ા',  # Fix matra
+            'á': 'િ',  # Fix matra
+            'â': 'ી',  # Fix matra
+            'ã': 'ુ',  # Fix matra
+            'ä': 'ૂ',  # Fix matra
         }
         
-        # Apply replacements
-        for old, new in replacements.items():
-            cleaned_text = cleaned_text.replace(old, new)
+        # Apply replacements (only if text contains Gujarati characters or is likely Gujarati)
+        has_gujarati = any('\u0A80' <= char <= '\u0AFF' for char in cleaned_text)
+        if has_gujarati:
+            for old, new in replacements.items():
+                cleaned_text = cleaned_text.replace(old, new)
         
-        # Remove lines with only numbers or special characters
+        # Remove control characters and non-printable characters except spaces and newlines
+        cleaned_text = ''.join(char for char in cleaned_text if char.isprintable() or char in ['\n', '\t', ' '])
+        
+        # Remove lines with only numbers, special characters, or noise
         lines = cleaned_text.split('\n')
         cleaned_lines = []
         for line in lines:
             line = line.strip()
             if line:
-                # Keep lines that have actual text content
-                if any(char.isalpha() for char in line) or len(line) > 2:
+                # Count meaningful characters (Gujarati, English letters, numbers)
+                meaningful_chars = sum(1 for char in line if 
+                    ('\u0A80' <= char <= '\u0AFF') or  # Gujarati
+                    char.isalnum() or  # Alphanumeric
+                    char in ['।', '॥', ' ', '-', '_'])  # Common punctuation
+                
+                # Keep lines with meaningful content
+                if meaningful_chars >= max(1, len(line) * 0.3):  # At least 30% meaningful
                     cleaned_lines.append(line)
         
-        cleaned_text = '\n'.join(cleaned_lines)
+        cleaned_text = ' '.join(cleaned_lines) if cleaned_lines else '\n'.join(cleaned_lines)
         
-        return cleaned_text
+        # Final normalization
+        cleaned_text = unicodedata.normalize('NFC', cleaned_text)
+        
+        return cleaned_text.strip()
 
     def extract_text_with_ocr(self, image: Image.Image, languages: List[str] = None, min_length: int = 10) -> str:
         """Extract text from image using advanced OCR"""
@@ -534,29 +646,47 @@ class OCRProcessor:
             return ""
         
         try:
+            import unicodedata
+            
             # Convert PIL image to numpy array
             img_array = np.array(image)
             
-            # Perform OCR
-            results = self.easyocr_reader.readtext(img_array)
+            # Perform OCR with lower confidence threshold for Gujarati
+            results = self.easyocr_reader.readtext(img_array, paragraph=False)
             
-            # Extract text from results
+            # Extract text from results with better filtering
             texts = []
+            confidences = []
+            
             for (bbox, text, confidence) in results:
-                if confidence > 0.3:  # Filter low confidence results
-                    texts.append(text)
+                # Lower threshold for Gujarati text (OCR can be less confident but still correct)
+                if confidence > 0.2:  # Lowered from 0.3 for better Gujarati detection
+                    # Normalize Unicode
+                    normalized_text = unicodedata.normalize('NFC', text.strip())
+                    if normalized_text:
+                        texts.append(normalized_text)
+                        confidences.append(confidence)
+            
+            if not texts:
+                return ""
             
             # Join all text
             full_text = ' '.join(texts)
             
-            if full_text.strip():
-                print(f"✅ EasyOCR extracted {len(full_text)} characters")
-                return full_text.strip()
+            # Normalize again after joining
+            full_text = unicodedata.normalize('NFC', full_text.strip())
+            
+            if full_text:
+                avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+                print(f"✅ EasyOCR extracted {len(full_text)} characters (avg confidence: {avg_confidence:.2f})")
+                return full_text
             
             return ""
             
         except Exception as e:
             print(f"❌ EasyOCR failed: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
 
     def normalize_gujarati_text(self, text: str) -> str:

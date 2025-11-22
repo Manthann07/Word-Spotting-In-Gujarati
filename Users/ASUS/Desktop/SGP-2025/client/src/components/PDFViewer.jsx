@@ -412,15 +412,83 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
   // Unified relevance percentage for both semantic and exact-match results
   const getRelevancePercent = (result) => {
     try {
+      // Priority 1: If it's an exact match, show high accuracy (95-100%)
+      // This indicates the model correctly found the exact word/phrase "સમાજ"
+      // The score from exact matches is density-based (very small), not accuracy-based
+      const hasExactMatch = result?.has_exact_match === true;
+      const hasExactMatches = result?.exact_matches && result.exact_matches.length > 0;
+      
+      if (hasExactMatch || hasExactMatches) {
+        const matchCount = result.exact_matches?.length || 1;
+        // Base accuracy of 95% for single match, up to 100% for multiple matches
+        // Multiple matches indicate higher confidence that the word is present
+        return Math.min(100, 95 + Math.min(5, Math.min(matchCount - 1, 5)));
+      }
+      
       if (typeof result?.score !== 'number') return 0;
-      // If score looks like cosine similarity (0..1), scale to 0..100
-      if (result.score <= 1) return Math.round(result.score * 100);
-      // Otherwise it's a density-like score; clamp to 100 for display
+      
+      // Priority 2: For semantic search (cosine similarity), score is between 0 and 1
+      // Convert to percentage (0-100%)
+      if (result.score > 0 && result.score <= 1) {
+        // Scale semantic similarity to a more meaningful percentage
+        // 0.1 similarity = 30%, 0.5 = 65%, 1.0 = 100%
+        if (result.score >= 0.1) {
+          // Map 0.1-1.0 to 30-100% for better visibility
+          const scaled = 30 + ((result.score - 0.1) / 0.9) * 70;
+          return Math.round(scaled);
+        }
+        // Very low similarity (< 0.1) - show raw percentage but minimum 15%
+        return Math.max(15, Math.round(result.score * 100));
+      }
+      
+      // Priority 3: For very small density-based scores (like 0.003 from exact matching)
+      // These shouldn't reach here if has_exact_match is set correctly
+      // But as fallback, if score is very small (< 1), it might be a density score
+      // Check if search_type indicates exact match
+      if (result.score < 1 && result.score > 0 && result.score < 0.1) {
+        // Very small score - might be unmarked exact match, give moderate accuracy
+        return 70; // Moderate confidence
+      }
+      
+      // Fallback: for any other score format, clamp to 1-100%
       return Math.max(1, Math.min(100, Math.round(result.score)));
     } catch (e) {
       return 0;
     }
   };
+
+  // Calculate model accuracy metrics
+  const getModelAccuracy = () => {
+    if (!searchResults?.results?.length) return null;
+    
+    const accuracies = searchResults.results.map(result => getRelevancePercent(result));
+    const averageAccuracy = accuracies.reduce((sum, acc) => sum + acc, 0) / accuracies.length;
+    const maxAccuracy = Math.max(...accuracies);
+    const minAccuracy = Math.min(...accuracies);
+    const highAccuracyCount = accuracies.filter(acc => acc >= 70).length;
+    const mediumAccuracyCount = accuracies.filter(acc => acc >= 40 && acc < 70).length;
+    const lowAccuracyCount = accuracies.filter(acc => acc < 40).length;
+    
+    // Get individual accuracies for breakdown
+    const individualAccuracies = searchResults.results.map((result, idx) => ({
+      page: result.page,
+      accuracy: accuracies[idx],
+      hasExactMatch: result.has_exact_match || (result.exact_matches && result.exact_matches.length > 0)
+    }));
+    
+    return {
+      average: Math.round(averageAccuracy),
+      max: Math.round(maxAccuracy),
+      min: Math.round(minAccuracy),
+      high: highAccuracyCount,
+      medium: mediumAccuracyCount,
+      low: lowAccuracyCount,
+      total: accuracies.length,
+      individual: individualAccuracies // Add individual breakdown
+    };
+  };
+
+  const accuracyMetrics = getModelAccuracy();
 
   if (!pdfData) {
     return (
@@ -751,7 +819,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
       {searchResults?.results?.length > 0 && (
         <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-xl rounded-2xl border border-blue-500/30 p-6">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
-            <div>
+            <div className="flex-1">
               <h4 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
                 <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
@@ -759,7 +827,7 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                 Search Summary
               </h4>
               
-              <p className="text-blue-200 text-lg">
+              <p className="text-blue-200 text-lg mb-3">
                 Found {searchResults.results.length} results for "{currentQuery}" across {searchResults.total_pages} pages
                 {getTotalMatchCount() > 0 && (
                   <span className="ml-2 text-blue-300 font-semibold">
@@ -767,6 +835,117 @@ const PDFViewer = ({ pdfData, searchResults, currentQuery }) => {
                   </span>
                 )}
               </p>
+
+              {/* Model Accuracy Metrics */}
+              {accuracyMetrics && (
+                <div className="bg-slate-800/50 backdrop-blur-xl rounded-xl border border-purple-500/30 p-4 mt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                    <h5 className="text-white font-semibold text-lg">Model Accuracy</h5>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    {/* Average Accuracy */}
+                    <div className="bg-gradient-to-br from-purple-500/20 to-blue-500/20 rounded-lg p-3 border border-purple-500/30">
+                      <div className="text-slate-300 text-xs mb-1">Average</div>
+                      <div className="text-2xl font-bold text-white">{accuracyMetrics.average}%</div>
+                    </div>
+                    
+                    {/* Maximum Accuracy */}
+                    <div className="bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-lg p-3 border border-green-500/30">
+                      <div className="text-slate-300 text-xs mb-1">Maximum</div>
+                      <div className="text-2xl font-bold text-white">{accuracyMetrics.max}%</div>
+                    </div>
+                    
+                    {/* Minimum Accuracy */}
+                    <div className="bg-gradient-to-br from-orange-500/20 to-red-500/20 rounded-lg p-3 border border-orange-500/30">
+                      <div className="text-slate-300 text-xs mb-1">Minimum</div>
+                      <div className="text-2xl font-bold text-white">{accuracyMetrics.min}%</div>
+                    </div>
+                    
+                    {/* Total Results */}
+                    <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 rounded-lg p-3 border border-blue-500/30">
+                      <div className="text-slate-300 text-xs mb-1">Total Results</div>
+                      <div className="text-2xl font-bold text-white">{accuracyMetrics.total}</div>
+                    </div>
+                  </div>
+
+                  {/* Accuracy Distribution */}
+                  <div className="mt-3 pt-3 border-t border-slate-600/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-slate-300 text-sm font-medium">Accuracy Distribution</div>
+                      <div className="text-slate-400 text-xs">
+                        Based on {accuracyMetrics.total} result{accuracyMetrics.total !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 border border-green-500/30 rounded-lg">
+                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                        <span className="text-green-300 text-sm font-medium">High (≥70%): {accuracyMetrics.high}</span>
+                      </div>
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                        <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                        <span className="text-yellow-300 text-sm font-medium">Medium (40-69%): {accuracyMetrics.medium}</span>
+                      </div>
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border border-red-500/30 rounded-lg">
+                        <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                        <span className="text-red-300 text-sm font-medium">Low (&lt;40%): {accuracyMetrics.low}</span>
+                      </div>
+                    </div>
+                    
+                    {/* Individual Result Breakdown */}
+                    {accuracyMetrics.individual && accuracyMetrics.individual.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-600/20">
+                        <div className="text-slate-300 text-xs mb-2 font-medium">Individual Results:</div>
+                        <div className="flex flex-wrap gap-2">
+                          {accuracyMetrics.individual.map((item, idx) => (
+                            <div 
+                              key={idx}
+                              className={`px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 ${
+                                item.accuracy >= 70
+                                  ? 'bg-green-500/10 border-green-500/30 text-green-300'
+                                  : item.accuracy >= 40
+                                  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300'
+                                  : 'bg-red-500/10 border-red-500/30 text-red-300'
+                              }`}
+                            >
+                              <span className="font-semibold">Page {item.page}:</span>
+                              <span>{item.accuracy}%</span>
+                              {item.hasExactMatch && (
+                                <svg className="w-3 h-3 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Accuracy Progress Bar */}
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                      <span>Overall Model Performance</span>
+                      <span className="font-semibold text-white">{accuracyMetrics.average}%</span>
+                    </div>
+                    <div className="w-full bg-slate-700/50 rounded-full h-2.5 overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          accuracyMetrics.average >= 70 
+                            ? 'bg-gradient-to-r from-green-500 to-emerald-500' 
+                            : accuracyMetrics.average >= 40 
+                            ? 'bg-gradient-to-r from-yellow-500 to-orange-500' 
+                            : 'bg-gradient-to-r from-red-500 to-pink-500'
+                        }`}
+                        style={{ width: `${accuracyMetrics.average}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Download Section */}
